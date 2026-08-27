@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ShoppingCart, Eye, Check, X } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import productsData from '../data/products.json';
 import { brands } from '../data/brands';
 import { useCart } from '../contexts/CartContext';
@@ -26,14 +27,70 @@ export default function ProductPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addItem, totalItems } = useCart();
+  const [product, setProduct] = useState<Product | null>(null);
+  const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [showCart, setShowCart] = useState(false);
 
-  const product = products.find(p => p.id === id);
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchProduct = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('id, name, brand, size, price, image')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data) {
+          setProduct({
+            id: data.id,
+            name: data.name,
+            brand: data.brand,
+            size: data.size,
+            price: Number(data.price),
+            image: data.image || '',
+          });
+        } else {
+          // Fallback search locally
+          const localProd = products.find(p => p.id === id);
+          if (localProd) {
+            setProduct(localProd);
+          } else {
+            navigate(`/not-found?barcode=${id}`);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching product:', err);
+        const localProd = products.find(p => p.id === id);
+        if (localProd) {
+          setProduct(localProd);
+        } else {
+          navigate(`/not-found?barcode=${id}`);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProduct();
+  }, [id, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0a0a1a] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-scanova-purple border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!product) {
-    navigate('/not-found');
+    navigate(`/not-found?barcode=${id}`);
     return null;
   }
 

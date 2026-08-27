@@ -50,7 +50,7 @@ interface PaymentSuccessData {
 export default function CartDrawer({ onClose }: Props) {
   const navigate = useNavigate();
   const { items, updateQuantity, removeItem, totalItems, totalPrice, clearCart } = useCart();
-  const { user } = useAuth();
+  const { currentUser } = useAuth();
   const [showPayment, setShowPayment] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successData, setSuccessData] = useState<PaymentSuccessData | null>(null);
@@ -80,19 +80,79 @@ export default function CartDrawer({ onClose }: Props) {
     }));
 
     // Save order to Supabase
+    let dbOrderId = '';
     try {
-      await supabase.from('orders').insert({
-        order_id: id,
-        user_id: null,
-        items: orderItems,
-        subtotal,
-        gst,
-        total,
-        payment_method: method,
-        payment_status: 'completed',
-      });
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          order_id: id,
+          user_id: currentUser?.id || null,
+          items: orderItems,
+          subtotal,
+          gst,
+          total,
+          payment_method: method,
+          payment_status: 'completed',
+        })
+        .select()
+        .single();
+
+      if (orderError) throw orderError;
+      dbOrderId = orderData.id;
     } catch (err) {
       console.error('Order save error:', err);
+    }
+
+    // Save normalized order items to Supabase
+    if (dbOrderId) {
+      try {
+        const orderItemsPayload = items.map(item => ({
+          order_id: dbOrderId,
+          product_id: item.id,
+          quantity: item.quantity,
+          price: item.price,
+          size: item.size
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('order_items')
+          .insert(orderItemsPayload);
+
+        if (itemsError) throw itemsError;
+      } catch (err) {
+        console.error('Order items save error:', err);
+      }
+    }
+
+    // Save payment to Supabase
+    if (dbOrderId) {
+      try {
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            order_id: dbOrderId,
+            transaction_id: txnId,
+            receipt_number: rcptNum,
+            amount: total,
+            payment_method: method,
+            payment_status: 'completed'
+          });
+
+        if (paymentError) throw paymentError;
+      } catch (err) {
+        console.error('Payment save error:', err);
+      }
+    }
+
+    // Update stock levels in inventory
+    try {
+      for (const item of items) {
+        const { error: stockError } = await supabase
+          .rpc('decrement_stock', { p_id: item.id, p_qty: item.quantity });
+        if (stockError) throw stockError;
+      }
+    } catch (err) {
+      console.error('Inventory stock update error:', err);
     }
 
     // Create receipt data
@@ -106,7 +166,7 @@ export default function CartDrawer({ onClose }: Props) {
       discount: 0,
       total,
       paymentMethod: method,
-      customerName: user?.username,
+      customerName: currentUser?.username,
       date,
       time,
       createdAt: new Date().toISOString(),

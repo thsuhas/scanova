@@ -6,6 +6,7 @@ import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import productsData from '../data/products.json';
 import { brands } from '../data/brands';
 import BrandBackground from '../components/BrandBackground';
+import { supabase } from '../lib/supabase';
 
 interface Product {
   id: string;
@@ -35,16 +36,34 @@ export default function Scanner() {
   const scannedRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  const handleBarcode = useCallback((code: string) => {
+  const handleBarcode = useCallback(async (code: string) => {
     console.log('[Scanner] Barcode detected:', code);
 
-    const product = products.find(p => p.id === code);
-    if (product) {
-      console.log('[Scanner] Product found:', product.name);
-      navigate(`/product/${product.id}`);
-    } else {
-      console.log('[Scanner] Product not found for barcode:', code);
-      navigate(`/not-found?barcode=${code}`);
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name')
+        .eq('id', code)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        console.log('[Scanner] Product found:', data.name);
+        navigate(`/product/${data.id}`);
+      } else {
+        console.log('[Scanner] Product not found for barcode:', code);
+        navigate(`/not-found?barcode=${code}`);
+      }
+    } catch (err) {
+      console.error('[Scanner] Database lookup error:', err);
+      // Fallback search locally
+      const product = products.find(p => p.id === code);
+      if (product) {
+        navigate(`/product/${product.id}`);
+      } else {
+        navigate(`/not-found?barcode=${code}`);
+      }
     }
   }, [navigate]);
 

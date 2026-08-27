@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Package, Plus, X } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export default function NotFound() {
   const [searchParams] = useSearchParams();
@@ -9,6 +10,55 @@ export default function NotFound() {
   const barcode = searchParams.get('barcode') || '';
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ name: '', brand: '', price: '', barcode });
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSaveProduct = async () => {
+    if (!formData.name || !formData.brand || !formData.price) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const priceNum = parseFloat(formData.price);
+      if (isNaN(priceNum)) {
+        alert('Invalid price format');
+        return;
+      }
+
+      // 1. Insert product into Supabase
+      const { error: productError } = await supabase
+        .from('products')
+        .insert({
+          id: formData.barcode,
+          name: formData.name,
+          brand: formData.brand,
+          price: priceNum,
+          size: 'M', // default size
+          image: 'https://images.pexels.com/photos/5698851/pexels-photo-5698851.jpeg?auto=compress&cs=tinysrgb&w=600' // default placeholder
+        });
+
+      if (productError) throw productError;
+
+      // 2. Initialize stock in inventory
+      const { error: invError } = await supabase
+        .from('inventory')
+        .insert({
+          product_id: formData.barcode,
+          stock: 20
+        });
+
+      if (invError) throw invError;
+
+      setShowModal(false);
+      navigate(`/product/${formData.barcode}`);
+    } catch (err) {
+      console.error('Error mapping product:', err);
+      alert('Failed to map product. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a1a] relative flex flex-col">
@@ -86,9 +136,12 @@ export default function NotFound() {
                 <input placeholder="Barcode ID" value={formData.barcode} readOnly
                   className="w-full px-4 py-3 rounded-xl glass text-white/50 placeholder-white/30 text-sm" />
               </div>
-              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setShowModal(false)}
-                className="w-full mt-5 py-3.5 rounded-xl gradient-primary text-white font-semibold shadow-neon">
-                Save Product
+              <motion.button 
+                whileTap={{ scale: 0.97 }} 
+                onClick={handleSaveProduct}
+                disabled={isSaving}
+                className="w-full mt-5 py-3.5 rounded-xl gradient-primary text-white font-semibold shadow-neon disabled:opacity-50 flex items-center justify-center gap-2">
+                {isSaving ? 'Saving...' : 'Save Product'}
               </motion.button>
               <p className="text-white/20 text-xs text-center mt-3">This is a demo feature</p>
             </motion.div>

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Download, Eye, ShoppingBag, Calendar, CreditCard } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface ReceiptData {
   orderId: string;
@@ -37,14 +39,73 @@ function formatPrice(price: number): string {
 
 export default function OrderHistory({ onClose }: OrderHistoryProps) {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [receipts, setReceipts] = useState<ReceiptData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedReceipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
-    setReceipts(storedReceipts);
-    setLoading(false);
-  }, []);
+    const fetchOrders = async () => {
+      if (!currentUser) {
+        setReceipts([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
+            order_id,
+            subtotal,
+            gst,
+            total,
+            payment_method,
+            created_at,
+            items,
+            payments (
+              transaction_id,
+              receipt_number
+            )
+          `)
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (data) {
+          const mapped: ReceiptData[] = data.map((order: any) => {
+            const dateObj = new Date(order.created_at);
+            const dateStr = dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+            const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+            const payment = order.payments?.[0];
+            return {
+              orderId: order.order_id,
+              transactionId: payment?.transaction_id || `TXN-FALLBACK`,
+              receiptNumber: payment?.receipt_number || `RCPT-FALLBACK`,
+              items: order.items || [],
+              subtotal: Number(order.subtotal),
+              gst: Number(order.gst),
+              discount: 0,
+              total: Number(order.total),
+              paymentMethod: order.payment_method,
+              customerName: currentUser.username,
+              date: dateStr,
+              time: timeStr,
+              createdAt: order.created_at,
+            };
+          });
+          setReceipts(mapped);
+        }
+      } catch (err) {
+        console.error('Error fetching orders:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [currentUser]);
 
   const handleViewReceipt = (orderId: string) => {
     navigate(`/receipt/${orderId}`);
@@ -58,11 +119,11 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
       const opt = {
         margin: 0,
         filename: `Scanova_Receipt_${receipt.receiptNumber}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
+        image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
-      html2pdf().set(opt).from(receiptHtml, 'string').save();
+      html2pdf().set(opt).from(receiptHtml).save();
     } catch (error) {
       console.log('PDF download error:', error);
     }

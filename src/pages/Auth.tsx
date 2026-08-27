@@ -16,22 +16,30 @@ export default function Auth() {
   const { login, signup } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!email || !password) { setError('Please fill in all fields'); return; }
-    login({ username: email.split('@')[0], email });
-    navigate('/home');
+    const { error } = await login(email, password);
+    if (error) {
+      setError(error.message || 'Login failed');
+    } else {
+      navigate('/home');
+    }
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!username || !email || !password || !confirmPassword) { setError('Please fill in all fields'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    signup({ username, email });
-    navigate('/home');
+    const { error } = await signup(username, email, password);
+    if (error) {
+      setError(error.message || 'Signup failed');
+    } else {
+      navigate('/home');
+    }
   };
 
   return (
