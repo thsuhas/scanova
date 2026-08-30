@@ -125,7 +125,7 @@ export default function ProductPage() {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-        className="relative mx-4 mt-4 rounded-3xl overflow-hidden aspect-square neon-border"
+        className="relative mx-auto mt-6 rounded-3xl overflow-hidden aspect-square neon-border w-[240px] sm:w-[280px] md:w-[320px]"
       >
         <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />

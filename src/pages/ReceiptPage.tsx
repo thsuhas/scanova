@@ -232,33 +232,33 @@ export default function ReceiptPage() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="min-h-screen bg-[#0a0a1a] overflow-auto pb-28"
+      className="min-h-screen bg-[#0a0a1a] overflow-auto pb-28 print:bg-white print:pb-0"
     >
       {/* Confetti Effect */}
-      {showConfetti && <ConfettiEffect />}
+      {showConfetti && <div className="print:hidden"><ConfettiEffect /></div>}
 
       {/* Header */}
-      <div className="sticky top-0 glass-strong px-4 py-4 flex items-center gap-3 z-10">
+      <div className="sticky top-0 glass-strong px-4 py-4 flex items-center gap-3 z-10 print:hidden border-b border-white/5">
         <button onClick={() => navigate('/home')} className="p-2 rounded-xl glass hover:bg-white/10 transition-colors">
           <Home className="w-5 h-5 text-white" />
         </button>
-        <h1 className="text-lg font-bold text-white">Payment Receipt</h1>
+        <h1 className="text-lg font-bold text-white tracking-wide">Payment Receipt</h1>
       </div>
 
       {/* Success Banner */}
-      <div className="flex flex-col items-center pt-8 pb-6 px-4">
+      <div className="flex flex-col items-center pt-8 pb-6 px-4 print:hidden">
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-          className="w-24 h-24 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mb-4 relative"
+          className="w-20 h-20 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mb-4 relative"
         >
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.4, type: 'spring' }}
           >
-            <Check className="w-12 h-12 text-green-400" />
+            <Check className="w-10 h-10 text-green-400" />
           </motion.div>
           <motion.div
             className="absolute inset-0 rounded-full border-2 border-green-500"
@@ -278,27 +278,27 @@ export default function ReceiptPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4 }}
-          className="text-white/60 text-sm"
+          className="text-white/40 text-sm"
         >
           Thank you for shopping with Scanova
         </motion.p>
       </div>
 
       {/* Receipt Card */}
-      <div className="px-4">
+      <div className="px-4 print:p-0 print:m-0">
         <div
           ref={receiptRef}
-          className="bg-white rounded-3xl overflow-hidden max-w-md mx-auto shadow-2xl"
+          className="bg-white rounded-3xl overflow-hidden max-w-md mx-auto shadow-2xl print:shadow-none print:rounded-none print:w-full print:max-w-none print:border-0"
         >
           {/* Receipt Header */}
-          <div className="bg-gradient-to-r from-purple-600 to-cyan-500 px-6 py-6 text-center">
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur">
-                <span className="text-white font-bold text-lg">S</span>
+          <div className="bg-gradient-to-r from-purple-600 to-cyan-500 px-6 py-6 text-center print:from-white print:to-white print:text-black print:border-b print:border-gray-200">
+            <div className="flex items-center justify-center gap-3 mb-1">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur print:border print:border-gray-200 print:bg-gray-50">
+                <span className="text-white font-extrabold text-xl print:text-purple-600">S</span>
               </div>
-              <span className="text-white font-bold text-2xl tracking-tight">SCANOVA</span>
+              <span className="text-white font-extrabold text-2xl tracking-tight print:text-black">SCANOVA</span>
             </div>
-            <p className="text-white/90 text-sm font-medium">Cashierless Shopping Receipt</p>
+            <p className="text-white/90 text-sm font-medium print:text-gray-500">Smart Self-Checkout</p>
           </div>
 
           {/* Receipt Body */}
@@ -306,32 +306,32 @@ export default function ReceiptPage() {
             {/* IDs Section */}
             <div className="border-b border-dashed border-gray-200 pb-4 mb-4">
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-500">Receipt No</span>
-                <span className="font-mono font-semibold text-purple-600">{receipt.receiptNumber}</span>
+                <span className="text-gray-400 font-medium">Receipt No</span>
+                <span className="font-mono font-bold text-purple-600 print:text-purple-700">{receipt.receiptNumber}</span>
               </div>
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-500">Order ID</span>
-                <span className="font-mono font-semibold">{receipt.orderId}</span>
+                <span className="text-gray-400 font-medium">Order ID</span>
+                <span className="font-mono font-semibold text-gray-700">{receipt.orderId}</span>
               </div>
               <div className="flex justify-between text-sm mb-2">
-                <span className="text-gray-500">Transaction ID</span>
-                <span className="font-mono">{receipt.transactionId}</span>
+                <span className="text-gray-400 font-medium">Transaction ID</span>
+                <span className="font-mono text-gray-600">{receipt.transactionId}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Date & Time</span>
-                <span>{receipt.date} | {receipt.time}</span>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-400 font-medium">Date & Time</span>
+                <span className="text-gray-700">{receipt.date} | {receipt.time}</span>
               </div>
               {receipt.customerName && (
-                <div className="flex justify-between text-sm mt-2">
-                  <span className="text-gray-500">Customer</span>
-                  <span className="font-medium">{receipt.customerName}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400 font-medium">Customer</span>
+                  <span className="font-semibold text-gray-700">{receipt.customerName}</span>
                 </div>
               )}
             </div>
 
             {/* QR Code */}
-            <div className="flex justify-center mb-4">
-              <div className="p-3 border-2 border-gray-200 rounded-xl bg-gray-50">
+            <div className="flex flex-col items-center mb-4">
+              <div className="p-3 border border-gray-100 rounded-xl bg-gray-50/50 print:bg-white print:border-gray-300">
                 {qrPattern.map((row, i) => (
                   <div key={i} className="flex">
                     {row.split('').map((cell, j) => (
@@ -340,86 +340,86 @@ export default function ReceiptPage() {
                   </div>
                 ))}
               </div>
+              <p className="text-center text-[10px] font-medium text-gray-400 mt-2">Scan QR to verify order details</p>
             </div>
-            <p className="text-center text-xs text-gray-400 mb-4">Scan QR to verify order details</p>
 
             {/* Items Section */}
             <div className="border-t border-b border-dashed border-gray-200 py-4 mb-4">
-              <p className="text-xs text-gray-500 mb-4 font-medium tracking-wide">ITEMS</p>
+              <p className="text-xs text-gray-400 mb-4 font-bold tracking-widest uppercase">Items</p>
               {receipt.items.map((item, idx) => (
                 <div key={idx} className="flex gap-3 mb-4 last:mb-0">
                   {item.image && (
-                    <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100">
+                    <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-50 border border-gray-100 print:border-gray-200">
                       <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm">{item.name}</p>
-                    <p className="text-xs text-gray-500">{item.brand}</p>
+                    <p className="font-semibold text-gray-900 text-sm truncate">{item.name}</p>
+                    <p className="text-xs text-gray-400 font-medium">{item.brand} {item.size ? `• Size: ${item.size}` : ''}</p>
                     {item.id && (
-                      <p className="text-xs text-gray-400 font-mono">#{item.id}</p>
+                      <p className="text-[10px] text-gray-400 font-mono mt-0.5">#{item.id}</p>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 mt-1 font-medium">
                       Qty: {item.quantity} x {formatPrice(item.price)}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-gray-900">{formatPrice(item.price * item.quantity)}</p>
+                    <p className="font-bold text-gray-950">{formatPrice(item.price * item.quantity)}</p>
                   </div>
                 </div>
               ))}
             </div>
 
             {/* Billing Section */}
-            <div className="space-y-2 mb-4">
+            <div className="space-y-2 mb-5">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Subtotal</span>
-                <span className="text-gray-700">{formatPrice(receipt.subtotal)}</span>
+                <span className="text-gray-800 font-medium">{formatPrice(receipt.subtotal)}</span>
               </div>
               {receipt.discount > 0 && (
-                <div className="flex justify-between text-sm text-green-600">
+                <div className="flex justify-between text-sm text-green-600 font-medium">
                   <span>Discount</span>
                   <span>-{formatPrice(receipt.discount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">GST (18%)</span>
-                <span className="text-gray-700">{formatPrice(receipt.gst)}</span>
+                <span className="text-gray-800 font-medium">{formatPrice(receipt.gst)}</span>
               </div>
-              <div className="border-t-2 border-gray-900 pt-3 mt-3 flex justify-between">
-                <span className="font-bold text-gray-900">TOTAL PAID</span>
-                <span className="font-bold text-xl text-purple-600">{formatPrice(receipt.total)}</span>
+              <div className="border-t-2 border-gray-950 pt-3 mt-3 flex justify-between items-center">
+                <span className="font-extrabold text-gray-950 tracking-wide text-sm">TOTAL PAID</span>
+                <span className="font-extrabold text-2xl text-purple-600 print:text-purple-800">{formatPrice(receipt.total)}</span>
               </div>
             </div>
 
             {/* Payment Status */}
-            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-4 mb-4">
+            <div className="bg-green-50/50 border border-green-200/60 rounded-xl px-4 py-4 mb-2 print:border-gray-200 print:bg-white">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Payment Method</p>
-                  <p className="font-medium text-gray-900">{receipt.paymentMethod}</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Payment Method</p>
+                  <p className="font-bold text-gray-900 text-sm">{receipt.paymentMethod}</p>
                 </div>
-                <div className="flex items-center gap-2 bg-green-500 px-3 py-2 rounded-lg">
-                  <Check className="w-4 h-4 text-white" />
-                  <span className="text-white font-bold text-sm">SUCCESS</span>
+                <div className="flex items-center gap-1.5 bg-green-600/10 border border-green-500/20 px-3 py-1.5 rounded-lg print:border-gray-400 print:bg-white">
+                  <Check className="w-4 h-4 text-green-600" />
+                  <span className="text-green-600 font-extrabold text-xs tracking-wider uppercase">Success</span>
                 </div>
               </div>
-              <p className="text-xs text-gray-500 mt-3">
+              <p className="text-[10px] text-gray-400 mt-3 font-mono">
                 Transaction Ref: {receipt.transactionId}
               </p>
             </div>
           </div>
 
           {/* Receipt Footer */}
-          <div className="bg-gray-50 px-6 py-5 text-center border-t border-gray-100">
-            <p className="text-gray-700 text-sm font-medium mb-1">Thank you for shopping with Scanova!</p>
-            <p className="text-gray-400 text-xs">www.scanova.in | support@scanova.in</p>
+          <div className="bg-gray-50/50 px-6 py-5 text-center border-t border-gray-100 print:bg-white print:border-gray-200">
+            <p className="text-gray-700 text-sm font-semibold mb-1">Thank you for shopping with Scanova!</p>
+            <p className="text-gray-400 text-xs">Smart Self-Checkout</p>
           </div>
         </div>
       </div>
 
       {/* Action Buttons */}
-      <div className="fixed bottom-0 left-0 right-0 glass-strong px-4 py-4">
+      <div className="fixed bottom-0 left-0 right-0 glass-strong px-4 py-4 print:hidden">
         <div className="max-w-md mx-auto">
           <div className="flex gap-3 mb-3">
             <motion.button
