@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [username, setUsername] = useState('');
@@ -13,7 +14,8 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const { login, signup } = useAuth();
+  const [successMessage, setSuccessMessage] = useState('');
+  const { login, signup, resetPassword } = useAuth();
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -39,6 +41,19 @@ export default function Auth() {
       setError(error.message || 'Signup failed');
     } else {
       navigate('/home');
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMessage('');
+    if (!email) { setError('Please enter your email'); return; }
+    const { error } = await resetPassword(email);
+    if (error) {
+      setError(error.message || 'Failed to send reset email');
+    } else {
+      setSuccessMessage("If an account exists for this email, we've sent a password reset link.");
     }
   };
 
@@ -69,112 +84,162 @@ export default function Auth() {
           </div>
           <h1 className="text-3xl font-bold text-gradient">Scanova</h1>
           <p className="text-white/30 text-sm mt-1">
-            {isLogin ? 'Welcome back' : 'Create your account'}
+            {isForgotPassword ? 'Reset your Scanova password' : (isLogin ? 'Welcome back' : 'Create your account')}
           </p>
         </motion.div>
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={isLogin ? 'login' : 'signup'}
-            initial={{ opacity: 0, x: isLogin ? -20 : 20 }}
+            key={isForgotPassword ? 'forgot' : (isLogin ? 'login' : 'signup')}
+            initial={{ opacity: 0, x: isForgotPassword ? 20 : (isLogin ? -20 : 20) }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: isLogin ? 20 : -20 }}
+            exit={{ opacity: 0, x: isForgotPassword ? -20 : (isLogin ? 20 : -20) }}
             transition={{ duration: 0.3 }}
             className="w-full max-w-sm"
           >
-            <form onSubmit={isLogin ? handleLogin : handleSignup} className="space-y-4">
-              {!isLogin && (
+            {isForgotPassword ? (
+              <form onSubmit={handleForgotPassword} className="space-y-4">
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
                   <input
-                    type="text"
-                    placeholder="Username"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
                     className="w-full pl-11 pr-4 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
                   />
                 </div>
-              )}
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                <input
-                  type={isLogin ? 'text' : 'email'}
-                  placeholder={isLogin ? 'Username or Email' : 'Email'}
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
-                />
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-12 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                {error && (
+                  <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="text-red-400 text-sm text-center">
+                    {error}
+                  </motion.p>
+                )}
+                {successMessage && (
+                  <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="text-green-400 text-sm text-center">
+                    {successMessage}
+                  </motion.p>
+                )}
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-3.5 rounded-xl gradient-primary text-white font-semibold text-base shadow-neon hover:shadow-lg transition-shadow"
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-              {!isLogin && (
+                  Send Reset Link
+                </motion.button>
+              </form>
+            ) : (
+              <form onSubmit={isLogin ? handleLogin : handleSignup} className="space-y-4">
+                {!isLogin && (
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+                    <input
+                      type="text"
+                      placeholder="Username"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
+                    />
+                  </div>
+                )}
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+                  <input
+                    type={isLogin ? 'text' : 'email'}
+                    placeholder={isLogin ? 'Username or Email' : 'Email'}
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
+                  />
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
                   <input
-                    type={showConfirm ? 'text' : 'password'}
-                    placeholder="Confirm Password"
-                    value={confirmPassword}
-                    onChange={e => setConfirmPassword(e.target.value)}
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
                     className="w-full pl-11 pr-12 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowConfirm(!showConfirm)}
+                    onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
                   >
-                    {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
-              )}
-              {error && (
-                <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="text-red-400 text-sm text-center">
-                  {error}
-                </motion.p>
-              )}
-              <motion.button
-                type="submit"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full py-3.5 rounded-xl gradient-primary text-white font-semibold text-base shadow-neon hover:shadow-lg transition-shadow"
-              >
-                {isLogin ? 'Log In' : 'Sign Up'}
-              </motion.button>
-            </form>
-
-            {isLogin && (
-              <div className="text-center mt-4">
-                <button className="text-scanova-cyan text-sm hover:text-scanova-neon-blue transition-colors">
-                  Forgot password?
-                </button>
-              </div>
+                {!isLogin && (
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+                    <input
+                      type={showConfirm ? 'text' : 'password'}
+                      placeholder="Confirm Password"
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      className="w-full pl-11 pr-12 py-3.5 rounded-xl glass text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-scanova-purple/50 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirm(!showConfirm)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+                    >
+                      {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                )}
+                {error && (
+                  <motion.p initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="text-red-400 text-sm text-center">
+                    {error}
+                  </motion.p>
+                )}
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-3.5 rounded-xl gradient-primary text-white font-semibold text-base shadow-neon hover:shadow-lg transition-shadow"
+                >
+                  {isLogin ? 'Log In' : 'Sign Up'}
+                </motion.button>
+              </form>
             )}
 
-            <div className="mt-6 glass rounded-xl p-4 text-center">
-              <p className="text-white/50 text-sm">
-                {isLogin ? "Don't have an account?" : 'Already have an account?'}
-              </p>
-              <button
-                onClick={() => { setIsLogin(!isLogin); setError(''); }}
-                className="mt-2 text-scanova-purple font-semibold text-sm hover:text-scanova-purple-light transition-colors"
-              >
-                {isLogin ? 'Sign Up' : 'Log In'}
-              </button>
-            </div>
+            {isForgotPassword ? (
+              <div className="mt-6 glass rounded-xl p-4 text-center">
+                <button
+                  onClick={() => { setIsForgotPassword(false); setError(''); setSuccessMessage(''); }}
+                  className="text-scanova-purple font-semibold text-sm hover:text-scanova-purple-light transition-colors"
+                >
+                  Back to Login
+                </button>
+              </div>
+            ) : (
+              <>
+                {isLogin && (
+                  <div className="text-center mt-4">
+                    <button
+                      type="button"
+                      onClick={() => { setIsForgotPassword(true); setError(''); setSuccessMessage(''); }}
+                      className="text-scanova-cyan text-sm hover:text-scanova-neon-blue transition-colors"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+
+                <div className="mt-6 glass rounded-xl p-4 text-center">
+                  <p className="text-white/50 text-sm">
+                    {isLogin ? "Don't have an account?" : 'Already have an account?'}
+                  </p>
+                  <button
+                    onClick={() => { setIsLogin(!isLogin); setError(''); }}
+                    className="mt-2 text-scanova-purple font-semibold text-sm hover:text-scanova-purple-light transition-colors"
+                  >
+                    {isLogin ? 'Sign Up' : 'Log In'}
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>

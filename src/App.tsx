@@ -10,6 +10,7 @@ import Scanner from './pages/Scanner';
 import ProductPage from './pages/Product';
 import NotFound from './pages/NotFound';
 import ReceiptPage from './pages/ReceiptPage';
+import ResetPassword from './pages/ResetPassword';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Splash />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
               <Route path="/scanner" element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
               <Route path="/product/:id" element={<ProtectedRoute><ProductPage /></ProtectedRoute>} />

@@ -13,6 +13,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ error: any }>;
   signup: (username: string, email: string, password: string) => Promise<{ error: any }>;
   logout: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ error: any }>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -43,44 +44,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // 1. Check current session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchProfile(session.user.id, session.user.email || '');
-      } else {
-        setLoading(false);
-      }
-    });
+    let active = true;
 
-    // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // Listen for auth changes (guaranteed to fire INITIAL_SESSION on register in Supabase v2)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email || '');
+        if (active) {
+          setTimeout(async () => {
+            if (active) {
+              await fetchProfile(session.user!.id, session.user!.email || '');
+            }
+          }, 0);
+        }
       } else {
-        setCurrentUser(null);
-        setLoading(false);
+        if (active) {
+          setCurrentUser(null);
+          setLoading(false);
+        }
       }
     });
 
     return () => {
+      active = false;
       subscription.unsubscribe();
     };
   }, []);
 
-  const login = async (email: string, password: string) => {
-    // Check if email format is inputted; if it's just a username, append a mock domain
-    let formattedEmail = email;
-    if (!email.includes('@')) {
-      formattedEmail = `${email}@scanova.com`;
+  const login = async (emailOrUsername: string, password: string) => {
+    let targetEmail = emailOrUsername;
+    
+    if (!emailOrUsername.includes('@')) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', emailOrUsername)
+          .maybeSingle();
+
+        if (error) {
+          return { error };
+        }
+        if (!data) {
+          return { error: { message: 'Username or password is incorrect' } };
+        }
+        targetEmail = data.email;
+      } catch (err: any) {
+        return { error: err };
+      }
     }
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: formattedEmail,
+      const { error } = await supabase.auth.signInWithPassword({
+        email: targetEmail,
         password,
       });
       if (error) {
         if (error.message === 'Failed to fetch') {
           return { error: { message: 'Database offline: The Supabase project is paused or deleted. Please restore it or check your .env configuration.' } };
+        }
+        if (error.message === 'Invalid login credentials') {
+          return { error: { message: 'Username or password is incorrect' } };
         }
         return { error };
       }
@@ -94,13 +117,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signup = async (username: string, email: string, password: string) => {
-    let formattedEmail = email;
-    if (!email.includes('@')) {
-      formattedEmail = `${email}@scanova.com`;
-    }
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email: formattedEmail,
+      const { error } = await supabase.auth.signUp({
+        email,
         password,
         options: {
           data: {
@@ -127,10 +146,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  const resetPassword = async (emailOrUsername: string) => {
+    let targetEmail = emailOrUsername;
+    
+    if (!emailOrUsername.includes('@')) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', emailOrUsername)
+          .maybeSingle();
+
+        if (error) {
+          return { error };
+        }
+        if (!data) {
+          return { error: { message: 'Username not found' } };
+        }
+        targetEmail = data.email;
+      } catch (err: any) {
+        return { error: err };
+      }
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) {
+        if (error.message === 'Failed to fetch') {
+          return { error: { message: 'Database offline: The Supabase project is paused or deleted. Please restore it or check your .env configuration.' } };
+        }
+        return { error };
+      }
+      return { error: null };
+    } catch (err: any) {
+      if (err.message?.includes('Failed to fetch')) {
+        return { error: { message: 'Database offline: The Supabase project is paused or deleted. Please restore it or check your .env configuration.' } };
+      }
+      return { error: err };
+    }
+  };
+
   const isAuthenticated = currentUser !== null;
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, currentUser, login, signup, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, currentUser, login, signup, logout, resetPassword }}>
       {!loading && children}
     </AuthContext.Provider>
   );
