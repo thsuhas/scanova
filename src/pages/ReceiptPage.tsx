@@ -26,7 +26,9 @@ interface ReceiptData {
   date: string;
   time: string;
   createdAt: string;
+  exitStatus?: string;
 }
+
 
 function formatPrice(price: number): string {
   return `₹${price.toLocaleString('en-IN')}`;
@@ -101,6 +103,7 @@ export default function ReceiptPage() {
             created_at,
             items,
             user_id,
+            exit_status,
             payments (
               transaction_id,
               receipt_number
@@ -143,6 +146,7 @@ export default function ReceiptPage() {
             date: dateStr,
             time: timeStr,
             createdAt: data.created_at,
+            exitStatus: data.exit_status || 'pending',
           });
         } else {
           // Fallback to local storage
