@@ -1,2 +1,7 @@
-# ml-service/requirements.txt
-# Dependencies placeholder
+pandas
+scikit-learn
+joblib
+fastapi
+uvicorn
+supabase
+python-dotenv

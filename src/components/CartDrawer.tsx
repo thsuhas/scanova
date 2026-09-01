@@ -5,6 +5,8 @@ import { Plus, Minus, Trash2, ShoppingCart, Check, Loader2, Receipt, ArrowLeft }
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { requestOrderFraudEvaluation } from '../services/fraudService';
+
 
 interface Props {
   onClose: () => void;
@@ -154,6 +156,14 @@ export default function CartDrawer({ onClose }: Props) {
     } catch (err) {
       console.error('Inventory stock update error:', err);
     }
+
+    // Trigger ML anomaly & fraud evaluation (safe, non-blocking)
+    if (dbOrderId) {
+      requestOrderFraudEvaluation(dbOrderId, currentUser?.id).catch(err => {
+        console.warn('Non-critical ML evaluation error:', err);
+      });
+    }
+
 
     // Create receipt data
     const receiptData = {
