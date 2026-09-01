@@ -46,29 +46,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
-    // Listen for auth changes (guaranteed to fire INITIAL_SESSION on register in Supabase v2)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        if (active) {
-          setTimeout(async () => {
-            if (active) {
-              await fetchProfile(session.user!.id, session.user!.email || '');
-            }
-          }, 0);
+    try {
+      // Listen for auth changes (guaranteed to fire INITIAL_SESSION on register in Supabase v2)
+      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        if (session?.user) {
+          if (active) {
+            setTimeout(async () => {
+              if (active) {
+                await fetchProfile(session.user!.id, session.user!.email || '');
+              }
+            }, 0);
+          }
+        } else {
+          if (active) {
+            setCurrentUser(null);
+            setLoading(false);
+          }
         }
-      } else {
-        if (active) {
-          setCurrentUser(null);
-          setLoading(false);
-        }
-      }
-    });
+      });
 
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-    };
+      return () => {
+        active = false;
+        data?.subscription?.unsubscribe();
+      };
+    } catch (err) {
+      console.warn('[AuthContext] Supabase auth listener error, falling back:', err);
+      if (active) {
+        setCurrentUser(null);
+        setLoading(false);
+      }
+    }
   }, []);
+
 
   const login = async (emailOrUsername: string, password: string) => {
     let targetEmail = emailOrUsername;

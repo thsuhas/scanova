@@ -45,60 +45,82 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
 
   useEffect(() => {
     const fetchOrders = async () => {
-      if (!currentUser) {
-        setReceipts([]);
-        setLoading(false);
-        return;
-      }
       setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select(`
-            order_id,
-            subtotal,
-            gst,
-            total,
-            payment_method,
-            created_at,
-            items,
-            payments (
-              transaction_id,
-              receipt_number
-            )
-          `)
-          .eq('user_id', currentUser.id)
-          .order('created_at', { ascending: false });
+      let supabaseOrders: ReceiptData[] = [];
 
-        if (error) throw error;
+      if (currentUser) {
+        try {
+          const { data, error } = await supabase
+            .from('orders')
+            .select(`
+              order_id,
+              subtotal,
+              gst,
+              total,
+              payment_method,
+              created_at,
+              items,
+              payments (
+                transaction_id,
+                receipt_number
+              )
+            `)
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false });
 
-        if (data) {
-          const mapped: ReceiptData[] = data.map((order: any) => {
-            const dateObj = new Date(order.created_at);
-            const dateStr = dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
-            const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+          if (error) throw error;
 
-            const payment = order.payments?.[0];
-            return {
-              orderId: order.order_id,
-              transactionId: payment?.transaction_id || `TXN-FALLBACK`,
-              receiptNumber: payment?.receipt_number || `RCPT-FALLBACK`,
-              items: order.items || [],
-              subtotal: Number(order.subtotal),
-              gst: Number(order.gst),
-              discount: 0,
-              total: Number(order.total),
-              paymentMethod: order.payment_method,
-              customerName: currentUser.username,
-              date: dateStr,
-              time: timeStr,
-              createdAt: order.created_at,
-            };
-          });
-          setReceipts(mapped);
+          if (data && data.length > 0) {
+            supabaseOrders = data.map((order: any) => {
+              const dateObj = new Date(order.created_at);
+              const dateStr = dateObj.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+              const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+              const payment = order.payments?.[0];
+              return {
+                orderId: order.order_id,
+                transactionId: payment?.transaction_id || `TXN-${order.order_id}`,
+                receiptNumber: payment?.receipt_number || `RCPT-${order.order_id}`,
+                items: order.items || [],
+                subtotal: Number(order.subtotal),
+                gst: Number(order.gst),
+                discount: 0,
+                total: Number(order.total),
+                paymentMethod: order.payment_method,
+                customerName: currentUser.username,
+                date: dateStr,
+                time: timeStr,
+                createdAt: order.created_at,
+              };
+            });
+          }
+        } catch (err) {
+          console.warn('[OrderHistory] Supabase fetch error, using local fallback:', err);
         }
-      } catch (err) {
-        console.error('Error fetching orders:', err);
+      }
+
+      // Merge with localStorage receipts if available
+      try {
+        const localReceipts: ReceiptData[] = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
+        const combinedMap = new Map<string, ReceiptData>();
+        
+        // Add Supabase orders first
+        supabaseOrders.forEach(o => combinedMap.set(o.orderId, o));
+        
+        // Add local receipts if not already present
+        localReceipts.forEach(o => {
+          if (!combinedMap.has(o.orderId)) {
+            combinedMap.set(o.orderId, o);
+          }
+        });
+
+        const merged = Array.from(combinedMap.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setReceipts(merged);
+      } catch (e) {
+        console.error('LocalStorage receipts parse error:', e);
+        setReceipts(supabaseOrders);
       } finally {
         setLoading(false);
       }
@@ -106,6 +128,7 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
 
     fetchOrders();
   }, [currentUser]);
+
 
   const handleViewReceipt = (orderId: string) => {
     navigate(`/receipt/${orderId}`);

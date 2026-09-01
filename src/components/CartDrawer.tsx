@@ -79,57 +79,73 @@ export default function CartDrawer({ onClose }: Props) {
       size: item.size,
     }));
 
-    // Save order to Supabase
+    // Attempt atomic checkout RPC in Supabase first
     let dbOrderId = '';
     try {
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_id: id,
-          user_id: currentUser?.id || null,
-          items: orderItems,
-          subtotal,
-          gst,
-          total,
-          payment_method: method,
-          payment_status: 'completed',
-        })
-        .select()
-        .single();
+      const { data: rpcOrderId, error: rpcError } = await supabase.rpc('create_checkout_order', {
+        p_order_id: id,
+        p_items: orderItems,
+        p_subtotal: subtotal,
+        p_gst: gst,
+        p_total: total,
+        p_payment_method: method,
+        p_transaction_id: txnId,
+        p_receipt_number: rcptNum,
+      });
 
-      if (orderError) throw orderError;
-      dbOrderId = orderData.id;
-    } catch (err) {
-      console.error('Order save error:', err);
-    }
-
-    // Save normalized order items to Supabase
-    if (dbOrderId) {
-      try {
-        const orderItemsPayload = items.map(item => ({
-          order_id: dbOrderId,
-          product_id: item.id,
-          quantity: item.quantity,
-          price: item.price,
-          size: item.size
-        }));
-
-        const { error: itemsError } = await supabase
-          .from('order_items')
-          .insert(orderItemsPayload);
-
-        if (itemsError) throw itemsError;
-      } catch (err) {
-        console.error('Order items save error:', err);
+      if (!rpcError && rpcOrderId) {
+        dbOrderId = rpcOrderId;
+      } else {
+        throw rpcError || new Error('RPC returned null');
       }
-    }
+    } catch (rpcErr) {
+      console.warn('[Checkout] Atomic RPC unavailable, falling back to sequential inserts:', rpcErr);
 
-    // Save payment to Supabase
-    if (dbOrderId) {
+      // Save order to Supabase
       try {
-        const { error: paymentError } = await supabase
-          .from('payments')
+        const { data: orderData, error: orderError } = await supabase
+          .from('orders')
           .insert({
+            order_id: id,
+            user_id: currentUser?.id || null,
+            items: orderItems,
+            subtotal,
+            gst,
+            total,
+            payment_method: method,
+            payment_status: 'completed',
+          })
+          .select()
+          .single();
+
+        if (!orderError && orderData) {
+          dbOrderId = orderData.id;
+        }
+      } catch (err) {
+        console.error('Order save error:', err);
+      }
+
+      // Save normalized order items to Supabase
+      if (dbOrderId) {
+        try {
+          const orderItemsPayload = items.map(item => ({
+            order_id: dbOrderId,
+            product_id: item.id,
+            quantity: item.quantity,
+            price: item.price,
+            size: item.size
+          }));
+
+          await supabase.from('order_items').insert(orderItemsPayload);
+        } catch (err) {
+          console.error('Order items save error:', err);
+        }
+      }
+
+      // Save payment to Supabase
+      if (dbOrderId) {
+        try {
+          await supabase.from('payments').insert({
             order_id: dbOrderId,
             transaction_id: txnId,
             receipt_number: rcptNum,
@@ -137,23 +153,21 @@ export default function CartDrawer({ onClose }: Props) {
             payment_method: method,
             payment_status: 'completed'
           });
+        } catch (err) {
+          console.error('Payment save error:', err);
+        }
+      }
 
-        if (paymentError) throw paymentError;
+      // Update stock levels in inventory
+      try {
+        for (const item of items) {
+          await supabase.rpc('decrement_stock', { p_id: item.id, p_qty: item.quantity });
+        }
       } catch (err) {
-        console.error('Payment save error:', err);
+        console.error('Inventory stock update error:', err);
       }
     }
 
-    // Update stock levels in inventory
-    try {
-      for (const item of items) {
-        const { error: stockError } = await supabase
-          .rpc('decrement_stock', { p_id: item.id, p_qty: item.quantity });
-        if (stockError) throw stockError;
-      }
-    } catch (err) {
-      console.error('Inventory stock update error:', err);
-    }
 
     // Create receipt data
     const receiptData = {

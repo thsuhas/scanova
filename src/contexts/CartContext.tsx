@@ -29,53 +29,63 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Fetch cart items from Supabase when user logs in
+  // Fetch cart items from Supabase when user logs in, or fallback to localStorage
   useEffect(() => {
-    if (!currentUser) {
-      setItems([]);
-      return;
-    }
-
     const fetchCart = async () => {
       setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('cart_items')
-          .select(`
-            quantity,
-            product_id,
-            products (
-              id,
-              name,
-              brand,
-              size,
-              price,
-              image
-            )
-          `)
-          .eq('user_id', currentUser.id);
+      if (currentUser) {
+        try {
+          const { data, error } = await supabase
+            .from('cart_items')
+            .select(`
+              quantity,
+              product_id,
+              products (
+                id,
+                name,
+                brand,
+                size,
+                price,
+                image
+              )
+            `)
+            .eq('user_id', currentUser.id);
 
-        if (error) throw error;
+          if (error) throw error;
 
-        if (data) {
-          const mapped: CartItem[] = data
-            .filter(item => item.products !== null)
-            .map(item => {
-              const prod = item.products as any;
-              return {
-                id: item.product_id,
-                name: prod.name,
-                brand: prod.brand,
-                size: prod.size,
-                price: Number(prod.price),
-                image: prod.image,
-                quantity: item.quantity
-              };
-            });
-          setItems(mapped);
+          if (data && data.length > 0) {
+            const mapped: CartItem[] = data
+              .filter(item => item.products !== null)
+              .map(item => {
+                const prod = item.products as any;
+                return {
+                  id: item.product_id,
+                  name: prod.name,
+                  brand: prod.brand,
+                  size: prod.size,
+                  price: Number(prod.price),
+                  image: prod.image,
+                  quantity: item.quantity
+                };
+              });
+            setItems(mapped);
+            localStorage.setItem('scanova_cart', JSON.stringify(mapped));
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.warn('[CartContext] Supabase fetch cart failed, using local fallback:', err);
         }
-      } catch (err) {
-        console.error('Error fetching cart:', err);
+      }
+
+      // Guest / Offline fallback
+      try {
+        const stored = localStorage.getItem('scanova_cart');
+        if (stored) {
+          setItems(JSON.parse(stored));
+        }
+      } catch (e) {
+        console.error('LocalStorage cart parse error:', e);
       } finally {
         setLoading(false);
       }
@@ -83,6 +93,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     fetchCart();
   }, [currentUser]);
+
+  // Persist items to localStorage whenever items change
+  useEffect(() => {
+    try {
+      localStorage.setItem('scanova_cart', JSON.stringify(items));
+    } catch (e) {
+      console.error('LocalStorage set error:', e);
+    }
+  }, [items]);
+
 
   const addItem = useCallback(async (item: Omit<CartItem, 'quantity'>) => {
     if (!currentUser) return;

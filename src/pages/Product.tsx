@@ -29,6 +29,7 @@ export default function ProductPage() {
   const navigate = useNavigate();
   const { addItem, totalItems } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
+  const [stock, setStock] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -47,6 +48,19 @@ export default function ProductPage() {
           .maybeSingle();
 
         if (error) throw error;
+
+        // Fetch inventory stock count
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('stock')
+          .eq('product_id', id)
+          .maybeSingle();
+
+        if (invData) {
+          setStock(invData.stock);
+        } else {
+          setStock(20);
+        }
 
         if (data) {
           setProduct({
@@ -71,6 +85,7 @@ export default function ProductPage() {
         const localProd = products.find(p => p.id === id);
         if (localProd) {
           setProduct(localProd);
+          setStock(20);
         } else {
           navigate(`/not-found?barcode=${id}`);
         }
@@ -81,6 +96,7 @@ export default function ProductPage() {
 
     fetchProduct();
   }, [id, navigate]);
+
 
   if (loading) {
     return (
@@ -149,7 +165,14 @@ export default function ProductPage() {
             <p className="text-white/40 text-xs">Brand</p>
             <p className="text-white font-semibold text-sm">{product.brand}</p>
           </div>
+          <div className="glass rounded-xl px-4 py-2">
+            <p className="text-white/40 text-xs">Stock Level</p>
+            <p className={`font-semibold text-sm ${stock !== null && stock > 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {stock !== null ? (stock > 0 ? `${stock} available` : 'Out of Stock') : 'In Stock'}
+            </p>
+          </div>
         </div>
+
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-bold text-gradient">{formatPrice(product.price)}</span>
         </div>
