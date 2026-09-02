@@ -82,11 +82,21 @@ export default function Scanner() {
   }, []);
 
   const startScanner = useCallback(async () => {
-    scannedRef.current = false;
     console.log('[Scanner] Starting scanner...');
+    scannedRef.current = false;
     setStatus('requesting');
     setStatusMessage('Requesting Camera Access...');
     setErrorMessage('');
+
+    // Cleanly stop and reset any previous reader instance before starting a new one
+    if (readerRef.current) {
+      try {
+        readerRef.current.reset();
+      } catch (e) {
+        console.log('[Scanner] Error resetting previous reader:', e);
+      }
+      readerRef.current = null;
+    }
 
     try {
       // Optimize configuration by enabling only specific retail formats
@@ -228,10 +238,7 @@ export default function Scanner() {
             }
           }
 
-          // Immediately stop camera tracks and decoding to prevent duplicates
-          stopScanner();
-          
-          // Execute callback
+          // Execute callback without shutting down hardware camera stream
           if (handleBarcodeRef.current) {
             handleBarcodeRef.current(result.getText(), snapshot);
           }
@@ -263,13 +270,19 @@ export default function Scanner() {
         setErrorMessage(`Camera error: ${err.message || 'Unknown error'}. Please refresh and try again.`);
       }
     }
-  }, [stopScanner]);
+  }, []);
 
   const handleDismissTamperingAlert = useCallback(() => {
-    scannedRef.current = false;
     setTamperingAlert(null);
     setErrorMessage('');
-    startScanner();
+    scannedRef.current = false;
+    setStatus('scanning');
+    setStatusMessage('Scanning Barcode...');
+
+    // If stream or reader was lost, cleanly restart scanner
+    if (!readerRef.current || !videoRef.current?.srcObject) {
+      startScanner();
+    }
   }, [startScanner]);
 
   const handleBarcode = useCallback(async (code: string, imageSnapshot?: string | null) => {
@@ -278,6 +291,7 @@ export default function Scanner() {
       setErrorMessage('Invalid barcode');
       setStatus('error');
       setStatusMessage('Invalid Barcode');
+      scannedRef.current = false;
       return;
     }
 
@@ -344,6 +358,7 @@ export default function Scanner() {
         console.log('[Scanner] Product found:', data.name);
         setStatus('detected');
         setStatusMessage('Product Found!');
+        stopScanner();
         navigate(`/product/${data.id}`);
       } else {
         // Fallback search locally
@@ -352,17 +367,20 @@ export default function Scanner() {
           console.log('[Scanner] Product found locally:', localProduct.name);
           setStatus('detected');
           setStatusMessage('Product Found!');
+          stopScanner();
           navigate(`/product/${localProduct.id}`);
         } else {
           console.log('[Scanner] Product not found:', normalized);
           setStatus('error');
           setStatusMessage('Product Not Found');
           setErrorMessage('Product not found');
-          // Allow scanning again after 2 seconds
+          // Allow scanning again after 2 seconds without restarting camera hardware
           setTimeout(() => {
             if (isMountedRef.current) {
               setErrorMessage('');
-              startScanner();
+              scannedRef.current = false;
+              setStatus('scanning');
+              setStatusMessage('Scanning Barcode...');
             }
           }, 2000);
         }
@@ -374,21 +392,24 @@ export default function Scanner() {
       if (localProduct) {
         setStatus('detected');
         setStatusMessage('Product Found!');
+        stopScanner();
         navigate(`/product/${localProduct.id}`);
       } else {
         setStatus('error');
         setStatusMessage('Database Error');
         setErrorMessage('Unable to find the product. Please try again.');
-        // Allow scanning again after 2 seconds
+        // Allow scanning again after 2 seconds without restarting camera hardware
         setTimeout(() => {
           if (isMountedRef.current) {
             setErrorMessage('');
-            startScanner();
+            scannedRef.current = false;
+            setStatus('scanning');
+            setStatusMessage('Scanning Barcode...');
           }
         }, 2000);
       }
     }
-  }, [navigate, startScanner]);
+  }, [currentUser, navigate, stopScanner]);
 
   // Keep the ref updated with the latest callback reference
   useEffect(() => {
