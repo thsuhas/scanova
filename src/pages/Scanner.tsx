@@ -82,13 +82,11 @@ export default function Scanner() {
   }, []);
 
   const startScanner = useCallback(async () => {
-    if (scannedRef.current) return;
-
+    scannedRef.current = false;
     console.log('[Scanner] Starting scanner...');
     setStatus('requesting');
     setStatusMessage('Requesting Camera Access...');
     setErrorMessage('');
-    scannedRef.current = false;
 
     try {
       // Optimize configuration by enabling only specific retail formats
@@ -161,10 +159,10 @@ export default function Scanner() {
 
           // Crop detected barcode region of interest (ROI) for CV physical tampering inspection
           let snapshot: string | null = null;
-          if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+          if (videoRef.current) {
             try {
-              const vWidth = videoRef.current.videoWidth;
-              const vHeight = videoRef.current.videoHeight;
+              const vWidth = videoRef.current.videoWidth || videoRef.current.clientWidth || 640;
+              const vHeight = videoRef.current.videoHeight || videoRef.current.clientHeight || 480;
               
               // Extract detected barcode coordinates from ZXing result points
               const points = (typeof result.getResultPoints === 'function' ? result.getResultPoints() : null) || [];
@@ -268,6 +266,7 @@ export default function Scanner() {
   }, [stopScanner]);
 
   const handleDismissTamperingAlert = useCallback(() => {
+    scannedRef.current = false;
     setTamperingAlert(null);
     setErrorMessage('');
     startScanner();
@@ -515,53 +514,60 @@ export default function Scanner() {
         >
           {/* Camera Preview */}
           <div className="relative w-full max-w-[340px] aspect-[4/3] rounded-2xl overflow-hidden bg-black/60 mx-auto border border-white/5 shadow-inner">
-            {status === 'scanning' || status === 'connected' ? (
-              <>
-                {/* Video Element */}
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-cover"
-                  playsInline
-                  muted
-                  autoPlay
+            {/* Video Element - Permanently mounted in DOM */}
+            <video
+              ref={videoRef}
+              className={`w-full h-full object-cover transition-opacity duration-300 ${
+                status === 'scanning' || status === 'connected' ? 'opacity-100' : 'opacity-0'
+              }`}
+              playsInline
+              muted
+              autoPlay
+            />
+
+            {/* Scanning Overlay when active */}
+            {(status === 'scanning' || status === 'connected') && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                {/* Subtle Scanning Line */}
+                <motion.div
+                  className="absolute left-6 right-6 h-0.5 bg-gradient-to-r from-transparent via-scanova-purple to-transparent"
+                  animate={{ top: ['15%', '85%', '15%'] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+                  style={{ boxShadow: '0 0 15px rgba(139, 92, 246, 0.4)' }}
                 />
 
-                {/* Scanning Overlay */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  {/* Subtle Scanning Line */}
-                  <motion.div
-                    className="absolute left-6 right-6 h-0.5 bg-gradient-to-r from-transparent via-scanova-purple to-transparent"
-                    animate={{ top: ['15%', '85%', '15%'] }}
-                    transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-                    style={{ boxShadow: '0 0 15px rgba(139, 92, 246, 0.4)' }}
-                  />
+                {/* Corner Brackets */}
+                <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-scanova-purple/80 rounded-tl-lg" />
+                <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-scanova-purple/80 rounded-tr-lg" />
+                <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-scanova-purple/80 rounded-bl-lg" />
+                <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-scanova-purple/80 rounded-br-lg" />
 
-                  {/* Corner Brackets */}
-                  <div className="absolute top-4 left-4 w-8 h-8 border-l-2 border-t-2 border-scanova-purple/80 rounded-tl-lg" />
-                  <div className="absolute top-4 right-4 w-8 h-8 border-r-2 border-t-2 border-scanova-purple/80 rounded-tr-lg" />
-                  <div className="absolute bottom-4 left-4 w-8 h-8 border-l-2 border-b-2 border-scanova-purple/80 rounded-bl-lg" />
-                  <div className="absolute bottom-4 right-4 w-8 h-8 border-r-2 border-b-2 border-scanova-purple/80 rounded-br-lg" />
-
-                  {/* Center Target Box */}
-                  <div className="absolute w-28 h-28 border border-white/15 rounded-lg flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-scanova-purple/40" />
-                  </div>
+                {/* Center Target Box */}
+                <div className="absolute w-28 h-28 border border-white/15 rounded-lg flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 rounded-full bg-scanova-purple/40" />
                 </div>
-              </>
-            ) : status === 'requesting' ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-black/40">
+              </div>
+            )}
+
+            {/* Status / Loader Overlays on top of permanent video element */}
+            {status === 'requesting' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-xs">
                 <Loader2 className="w-10 h-10 text-scanova-purple animate-spin" />
                 <p className="text-white/40 text-xs">Initializing camera stream...</p>
               </div>
-            ) : status === 'detected' ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-green-500/10">
+            )}
+
+            {status === 'detected' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-xs">
                 <div className="w-12 h-12 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center">
                   <ScanLine className="w-6 h-6 text-green-400" />
                 </div>
                 <p className="text-green-400 text-sm font-semibold">Barcode detected!</p>
               </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-black/50">
+            )}
+
+            {(status === 'idle' || status === 'error' || status === 'denied' || status === 'no-camera') && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 backdrop-blur-xs">
                 <Camera className="w-10 h-10 text-white/15" strokeWidth={1.5} />
                 <p className="text-white/20 text-xs text-center max-w-[200px]">
                   {status === 'denied' ? 'Camera access was denied. Please update browser settings.' :
