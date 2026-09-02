@@ -7,6 +7,7 @@ import productsData from '../data/products.json';
 import { brands } from '../data/brands';
 import { supabase } from '../lib/supabase';
 import { evaluateBarcodeTampering, computeCombinedSecurity } from '../services/fraudService';
+import BrandBackground from '../components/BrandBackground';
 
 interface Product {
   id: string;
