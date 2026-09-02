@@ -17,6 +17,8 @@ from supabase_client import (
 from feature_engineering import extract_order_features
 from train_model import train_isolation_forest, MODEL_FILE_PATH, MODEL_FEATURES
 from inference import predict_fraud_risk, load_model_artifact
+from barcode_tampering_cv import predict_barcode_tampering, load_tampering_model
+
 
 app = FastAPI(
     title="Scanova ML Fraud Detection API",
@@ -214,3 +216,29 @@ def predict_features(payload: FeatureRecordModel):
     Evaluates order features directly and returns non-sensitive anomaly metrics.
     """
     return predict_fraud_risk(payload.model_dump())
+
+
+class BarcodeTamperingRequest(BaseModel):
+    image: Optional[str] = Field(None, description="Base64 encoded barcode image or data URI")
+    barcode: Optional[str] = Field(None, description="Optional barcode string (e.g. '1001')")
+    order_id: Optional[str] = Field(None, description="Optional order identifier")
+
+
+BarcodeTamperingRequest.model_rebuild()
+
+
+@app.post("/barcode-tampering")
+def evaluate_barcode_tampering_endpoint(req: BarcodeTamperingRequest):
+    """
+    Evaluates physical barcode image integrity using Computer Vision.
+    Identifies physical tampering (obstructions, line cuts, damage, label overlays, localized alterations).
+    """
+    if not req.image:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing 'image' field in request payload."
+        )
+
+    result = predict_barcode_tampering(req.image)
+    return result
+

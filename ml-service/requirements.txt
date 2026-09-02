@@ -5,3 +5,6 @@ fastapi
 uvicorn
 supabase
 python-dotenv
+pillow
+python-multipart
+

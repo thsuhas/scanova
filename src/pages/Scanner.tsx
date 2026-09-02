@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Camera, CameraOff, Keyboard, ArrowLeft, ScanLine, AlertCircle, Loader2 } from 'lucide-react';
+import { Camera, CameraOff, Keyboard, ArrowLeft, ScanLine, AlertCircle, Loader2, ShieldAlert, AlertTriangle, RefreshCw, Ban } from 'lucide-react';
 import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 import productsData from '../data/products.json';
 import { brands } from '../data/brands';
-import BrandBackground from '../components/BrandBackground';
 import { supabase } from '../lib/supabase';
+import { evaluateBarcodeTampering, computeCombinedSecurity } from '../services/fraudService';
 
 interface Product {
   id: string;
@@ -21,6 +21,14 @@ const products: Product[] = productsData;
 
 type ScannerStatus = 'idle' | 'requesting' | 'connected' | 'scanning' | 'detected' | 'error' | 'no-camera' | 'denied';
 
+interface TamperingAlertState {
+  isOpen: boolean;
+  barcode: string;
+  score: number;
+  level: 'low' | 'medium' | 'high';
+  tamperingType: string;
+}
+
 export default function Scanner() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -31,11 +39,13 @@ export default function Scanner() {
   const [statusMessage, setStatusMessage] = useState('Initializing scanner...');
   const [manualCode, setManualCode] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [tamperingAlert, setTamperingAlert] = useState<TamperingAlertState | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const scannedRef = useRef(false);
   const isMountedRef = useRef(true);
-  const handleBarcodeRef = useRef<((code: string) => Promise<void>) | null>(null);
+  const handleBarcodeRef = useRef<((code: string, snapshot?: string | null) => Promise<void>) | null>(null);
+
 
   const stopScanner = useCallback(() => {
     console.log('[Scanner] Stopping scanner...');
@@ -130,13 +140,7 @@ export default function Scanner() {
       // Small delay to ensure video element is ready
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      if (!videoRef.current) {
-        console.error('[Scanner] Video element not found');
-        setStatus('error');
-        setStatusMessage('Video element not found');
-        setErrorMessage('Failed to initialize video element. Please refresh and try again.');
-        return;
-      }
+      if (!videoRef.current || !isMountedRef.current) return;
 
       console.log('[Scanner] Starting video decode...');
       setStatus('scanning');
@@ -152,12 +156,29 @@ export default function Scanner() {
           setStatus('detected');
           setStatusMessage('Barcode Detected!');
 
+          // Capture current video frame snapshot for CV physical tampering inspection
+          let snapshot: string | null = null;
+          if (videoRef.current && videoRef.current.videoWidth > 0) {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = videoRef.current.videoWidth;
+              canvas.height = videoRef.current.videoHeight;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+                snapshot = canvas.toDataURL('image/png');
+              }
+            } catch (e) {
+              console.warn('[Scanner] Could not capture frame snapshot for CV check:', e);
+            }
+          }
+
           // Immediately stop camera tracks and decoding to prevent duplicates
           stopScanner();
           
           // Execute callback
           if (handleBarcodeRef.current) {
-            handleBarcodeRef.current(result.getText());
+            handleBarcodeRef.current(result.getText(), snapshot);
           }
         }
 
@@ -189,7 +210,13 @@ export default function Scanner() {
     }
   }, [stopScanner]);
 
-  const handleBarcode = useCallback(async (code: string) => {
+  const handleDismissTamperingAlert = useCallback(() => {
+    setTamperingAlert(null);
+    setErrorMessage('');
+    startScanner();
+  }, [startScanner]);
+
+  const handleBarcode = useCallback(async (code: string, imageSnapshot?: string | null) => {
     const normalized = code.trim();
     if (!normalized) {
       setErrorMessage('Invalid barcode');
@@ -202,6 +229,41 @@ export default function Scanner() {
     setStatus('requesting');
     setStatusMessage('Searching product...');
 
+    // If camera frame snapshot is available, run CV physical barcode tampering check
+    if (imageSnapshot) {
+      try {
+        const cvResult = await evaluateBarcodeTampering(imageSnapshot, normalized);
+        if (cvResult) {
+          console.log('[Scanner] Barcode CV tampering evaluation:', cvResult);
+          try {
+            sessionStorage.setItem('last_scanned_barcode_tampering', JSON.stringify(cvResult));
+            const combinedSec = computeCombinedSecurity(null, cvResult);
+            sessionStorage.setItem('scanova_combined_security', JSON.stringify(combinedSec));
+          } catch (e) {
+            // ignore session storage error
+          }
+
+          // Enforce security gate if high physical tampering is detected
+          if (cvResult.detected || cvResult.level === 'high') {
+            console.warn('[Scanner] Security Block: Physical barcode tampering detected!');
+            setStatus('error');
+            setStatusMessage('Tampering Detected');
+            setTamperingAlert({
+              isOpen: true,
+              barcode: normalized,
+              score: cvResult.score,
+              level: cvResult.level,
+              tamperingType: cvResult.tampering_type || 'physical_alteration',
+            });
+            // Stop purchase flow: do not proceed to product page or cart
+            return;
+          }
+        }
+      } catch (cvErr) {
+        console.warn('[Scanner] Non-blocking CV evaluation skipped due to error:', cvErr);
+      }
+    }
+
     try {
       // Single efficient indexed query
       const { data, error } = await supabase
@@ -209,6 +271,7 @@ export default function Scanner() {
         .select('id, name')
         .eq('id', normalized)
         .maybeSingle();
+
 
       if (error) throw error;
 
@@ -559,6 +622,78 @@ export default function Scanner() {
           <p>Available barcodes: {products.slice(0, 4).map(p => p.id).join(', ')}...</p>
         </div>
       </div>
+
+      {/* User-Visible Security Warning Modal for HIGH Barcode Tampering */}
+      {tamperingAlert && tamperingAlert.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="w-full max-w-md p-6 rounded-3xl bg-[#140f22] border-2 border-red-500/50 shadow-2xl shadow-red-500/25 text-white flex flex-col gap-5"
+          >
+            {/* Header with Alert Icon */}
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 shrink-0">
+                <ShieldAlert className="w-8 h-8 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-red-400 tracking-wide flex items-center gap-1.5">
+                  🚨 Barcode Tampering Detected
+                </h3>
+                <p className="text-xs text-white/60">This barcode appears to be physically tampered with.</p>
+              </div>
+            </div>
+
+            {/* Details Box */}
+            <div className="p-4 rounded-2xl bg-red-950/30 border border-red-500/20 space-y-2.5 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-red-500/10">
+                <span className="text-white/50">Tampering Risk Level</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-red-500/30 border border-red-500/50 text-red-300 font-bold uppercase tracking-wider">
+                  {tamperingAlert.level.toUpperCase()} RISK
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-red-500/10">
+                <span className="text-white/50">Tampering Probability</span>
+                <span className="font-mono font-bold text-red-400">
+                  {(tamperingAlert.score * 100).toFixed(1)}% (score: {tamperingAlert.score})
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-red-500/10">
+                <span className="text-white/50">Detected Tamper Type</span>
+                <span className="font-semibold text-white/90 capitalize">
+                  {tamperingAlert.tamperingType.replace(/_/g, ' ')}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-red-500/10">
+                <span className="text-white/50">Scanned Barcode</span>
+                <span className="font-mono font-semibold text-white/80">{tamperingAlert.barcode}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-white/50">Security Action</span>
+                <span className="font-bold text-amber-400 flex items-center gap-1">
+                  <Ban className="w-3.5 h-3.5" /> Item Blocked from Purchase
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-white/50 text-center leading-relaxed">
+              For security and inventory integrity, physically altered barcodes cannot be added to your cart. Please rescan a genuine item.
+            </p>
+
+            {/* Rescan Button */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleDismissTamperingAlert}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold text-sm shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 transition-all"
+            >
+              <RefreshCw className="w-4 h-4" /> Rescan Barcode
+            </motion.button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
+

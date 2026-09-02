@@ -128,10 +128,42 @@ def run_tests():
     assert fd_check.data is not None
     print("[PASS] Test 9: fraud_detections table read/query verified on live database")
 
+    # Test 10: Barcode Tampering CV Endpoint - Genuine Image
+    from pathlib import Path
+    import base64
+    dataset_root = Path(r"C:\Users\SUHAS\OneDrive\Desktop\scanova_barcode_dataset\scanova_barcode_dataset")
+    if dataset_root.exists():
+        genuine_img_bytes = (dataset_root / "genuine" / "1035_genuine_01.png").read_bytes()
+        gen_b64 = "data:image/png;base64," + base64.b64encode(genuine_img_bytes).decode("utf-8")
+        resp_gen = client.post("/barcode-tampering", json={"image": gen_b64, "barcode": "1035"})
+        assert resp_gen.status_code == 200, f"CV genuine test failed: {resp_gen.text}"
+        data_gen = resp_gen.json()["barcode_tampering"]
+        assert data_gen["detected"] is False
+        assert data_gen["level"] == "low"
+        assert data_gen["score"] < 0.35
+        print(f"[PASS] Test 10: CV /barcode-tampering Genuine Image evaluated (score={data_gen['score']}, level={data_gen['level']})")
+
+        # Test 11: Barcode Tampering CV Endpoint - Tampered Image
+        tampered_img_bytes = (dataset_root / "tampered" / "1035_tampered_01.png").read_bytes()
+        tamp_b64 = "data:image/png;base64," + base64.b64encode(tampered_img_bytes).decode("utf-8")
+        resp_tamp = client.post("/barcode-tampering", json={"image": tamp_b64, "barcode": "1035"})
+        assert resp_tamp.status_code == 200, f"CV tampered test failed: {resp_tamp.text}"
+        data_tamp = resp_tamp.json()["barcode_tampering"]
+        assert data_tamp["detected"] is True
+        assert data_tamp["level"] == "high"
+        assert data_tamp["score"] >= 0.65
+        print(f"[PASS] Test 11: CV /barcode-tampering Tampered Image evaluated (score={data_tamp['score']}, level={data_tamp['level']})")
+
+    # Test 12: Barcode Tampering CV Endpoint - Missing Payload Error Handling
+    resp_empty = client.post("/barcode-tampering", json={})
+    assert resp_empty.status_code == 400
+    print("[PASS] Test 12: CV /barcode-tampering missing payload handled with 400")
+
     print("\n==================================================")
-    print("  ALL 9 INTEGRATION TESTS PASSED SUCCESSFULLY!    ")
+    print("  ALL 12 INTEGRATION TESTS PASSED SUCCESSFULLY!   ")
     print("==================================================")
 
 
 if __name__ == "__main__":
     run_tests()
+

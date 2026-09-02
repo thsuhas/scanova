@@ -37,7 +37,8 @@ env/
 .vscode/
 .idea/
 *.log
-.pytest_cache/
-models/
+models/*
+!models/barcode_tampering_detector.joblib
+
 
 
