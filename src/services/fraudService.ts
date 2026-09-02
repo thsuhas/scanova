@@ -4,6 +4,8 @@
  * If the ML service is offline or unreachable, checkout and scanning proceed normally.
  */
 
+import { supabase } from '../lib/supabase';
+
 const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8000';
 
 export interface FraudEvaluationResult {
@@ -134,3 +136,56 @@ export function computeCombinedSecurity(
     },
   };
 }
+
+export interface SaveBarcodeTamperingParams {
+  userId?: string | null;
+  username?: string | null;
+  orderId?: string | null;
+  barcode: string;
+  tamperingResult: BarcodeTamperingResult;
+}
+
+export async function saveBarcodeTamperingDetection(
+  params: SaveBarcodeTamperingParams
+): Promise<boolean> {
+  const { userId, username, orderId, barcode, tamperingResult } = params;
+  if (!barcode || !tamperingResult) return false;
+
+  try {
+    const rawScore = typeof tamperingResult.score === 'number' ? tamperingResult.score : null;
+    const cleanScore = rawScore !== null && !isNaN(rawScore)
+      ? Number(Math.max(0, Math.min(1, rawScore)).toFixed(4))
+      : null;
+
+    let cleanLevel = (tamperingResult.level || 'low').toLowerCase();
+    if (cleanLevel !== 'low' && cleanLevel !== 'medium' && cleanLevel !== 'high') {
+      cleanLevel = 'low';
+    }
+
+    const payload = {
+      user_id: userId || null,
+      username: username || null,
+      order_id: orderId || null,
+      barcode: String(barcode),
+      tampering_score: cleanScore,
+      risk_level: cleanLevel,
+      tampering_detected: Boolean(tamperingResult.detected),
+      tampering_type: tamperingResult.tampering_type || 'none',
+      model_version: tamperingResult.model_version || 'barcode_cv_v1',
+    };
+
+    const { error } = await supabase
+      .from('barcode_tampering_detections')
+      .insert(payload);
+
+    if (error) {
+      console.warn('[Barcode CV] Error persisting tampering detection to Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn('[Barcode CV] Failed to save barcode tampering detection:', error);
+    return false;
+  }
+}
+

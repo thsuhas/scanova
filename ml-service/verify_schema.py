@@ -10,7 +10,7 @@ def verify_schema():
     client = get_supabase_client()
     results = {}
 
-    tables = ["fraud_detections", "scan_events", "exit_verifications", "exit_verified_items"]
+    tables = ["fraud_detections", "scan_events", "exit_verifications", "exit_verified_items", "barcode_tampering_detections"]
     for table in tables:
         try:
             res = client.table(table).select("id").limit(1).execute()

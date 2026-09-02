@@ -341,3 +341,69 @@ def fetch_fraud_detections(order_id: Optional[str] = None, limit: Optional[int] 
         return response.data or []
     except Exception:
         return []
+
+
+def save_barcode_tampering_detection(
+    barcode: str,
+    tampering_score: Optional[float],
+    risk_level: str,
+    tampering_detected: bool,
+    tampering_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    username: Optional[str] = None,
+    order_id: Optional[str] = None,
+    model_version: str = "barcode_cv_v1",
+) -> Optional[Dict[str, Any]]:
+    """
+    Persists a barcode tampering CV evaluation to the 'barcode_tampering_detections' table.
+    """
+    try:
+        client = get_supabase_client()
+        clean_score = (
+            float(np.clip(float(tampering_score), 0.0, 1.0))
+            if (tampering_score is not None and not np.isnan(tampering_score) and not np.isinf(tampering_score))
+            else None
+        )
+        clean_level = str(risk_level or "low").lower()
+        if clean_level not in ("low", "medium", "high"):
+            clean_level = "low"
+
+        payload = {
+            "user_id": str(user_id) if user_id else None,
+            "username": str(username) if username else None,
+            "order_id": str(order_id) if order_id else None,
+            "barcode": str(barcode),
+            "tampering_score": round(clean_score, 4) if clean_score is not None else None,
+            "risk_level": clean_level,
+            "tampering_detected": bool(tampering_detected),
+            "tampering_type": str(tampering_type or "none"),
+            "model_version": str(model_version or "barcode_cv_v1"),
+        }
+        res = client.table("barcode_tampering_detections").insert(payload).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+        return payload
+    except Exception as exc:
+        print(f"Warning: Failed to save barcode tampering detection record: {exc}")
+        return None
+
+
+def fetch_barcode_tampering_detections(
+    barcode: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Reads barcode tampering detections from 'barcode_tampering_detections' table.
+    """
+    try:
+        client = get_supabase_client()
+        query = client.table("barcode_tampering_detections").select("*").order("created_at", desc=True)
+        if barcode:
+            query = query.eq("barcode", barcode)
+        if limit:
+            query = query.limit(limit)
+        response = query.execute()
+        return response.data or []
+    except Exception:
+        return []
+

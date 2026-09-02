@@ -6,7 +6,8 @@ import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFor
 import productsData from '../data/products.json';
 import { brands } from '../data/brands';
 import { supabase } from '../lib/supabase';
-import { evaluateBarcodeTampering, computeCombinedSecurity } from '../services/fraudService';
+import { useAuth } from '../contexts/AuthContext';
+import { evaluateBarcodeTampering, computeCombinedSecurity, saveBarcodeTamperingDetection } from '../services/fraudService';
 import BrandBackground from '../components/BrandBackground';
 
 interface Product {
@@ -32,6 +33,7 @@ interface TamperingAlertState {
 
 export default function Scanner() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [searchParams] = useSearchParams();
   const brandId = searchParams.get('brand');
   const brand = brands.find(b => b.id === brandId);
@@ -236,6 +238,15 @@ export default function Scanner() {
         const cvResult = await evaluateBarcodeTampering(imageSnapshot, normalized);
         if (cvResult) {
           console.log('[Scanner] Barcode CV tampering evaluation:', cvResult);
+
+          // Save CV evaluation result to Supabase barcode_tampering_detections table
+          saveBarcodeTamperingDetection({
+            userId: currentUser?.id || null,
+            username: currentUser?.username || null,
+            barcode: normalized,
+            tamperingResult: cvResult,
+          }).catch(err => console.warn('[Scanner] Non-blocking database logging error:', err));
+
           try {
             sessionStorage.setItem('last_scanned_barcode_tampering', JSON.stringify(cvResult));
             const combinedSec = computeCombinedSecurity(null, cvResult);
