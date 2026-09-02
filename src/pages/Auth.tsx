@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, ScanLine, Mail, Lock, User } from 'lucide-react';
@@ -15,18 +15,30 @@ export default function Auth() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const { login, signup, resetPassword } = useAuth();
+  const [submitting, setSubmitting] = useState(false);
+  const { login, signup, resetPassword, isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && isAuthenticated) {
+      navigate('/home', { replace: true });
+    }
+  }, [isAuthenticated, loading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (!email || !password) { setError('Please fill in all fields'); return; }
-    const { error } = await login(email, password);
-    if (error) {
-      setError(error.message || 'Login failed');
-    } else {
-      navigate('/home');
+    setSubmitting(true);
+    try {
+      const { error } = await login(email, password);
+      if (error) {
+        setError(error.message || 'Login failed');
+      } else {
+        navigate('/home', { replace: true });
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -36,11 +48,16 @@ export default function Auth() {
     if (!username || !email || !password || !confirmPassword) { setError('Please fill in all fields'); return; }
     if (password !== confirmPassword) { setError('Passwords do not match'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    const { error } = await signup(username, email, password);
-    if (error) {
-      setError(error.message || 'Signup failed');
-    } else {
-      navigate('/home');
+    setSubmitting(true);
+    try {
+      const { error } = await signup(username, email, password);
+      if (error) {
+        setError(error.message || 'Signup failed');
+      } else {
+        navigate('/home', { replace: true });
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -195,11 +212,21 @@ export default function Auth() {
                 )}
                 <motion.button
                   type="submit"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full py-3.5 rounded-xl gradient-primary text-white font-semibold text-base shadow-neon hover:shadow-lg transition-shadow"
+                  disabled={submitting}
+                  whileHover={submitting ? {} : { scale: 1.02 }}
+                  whileTap={submitting ? {} : { scale: 0.98 }}
+                  className={`w-full py-3.5 rounded-xl gradient-primary text-white font-semibold text-base shadow-neon hover:shadow-lg transition-all flex items-center justify-center gap-2 ${
+                    submitting ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
                 >
-                  {isLogin ? 'Log In' : 'Sign Up'}
+                  {submitting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>{isLogin ? 'Logging in...' : 'Creating account...'}</span>
+                    </>
+                  ) : (
+                    <span>{isLogin ? 'Log In' : 'Sign Up'}</span>
+                  )}
                 </motion.button>
               </form>
             )}

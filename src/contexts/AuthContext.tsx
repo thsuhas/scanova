@@ -47,18 +47,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
 
+    // Direct initial session check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!active) return;
+      if (session?.user) {
+        fetchProfile(session.user.id, session.user.email || '');
+      } else {
+        setCurrentUser(null);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (active) {
+        setCurrentUser(null);
+        setLoading(false);
+      }
+    });
+
     try {
-      // Listen for auth changes (guaranteed to fire INITIAL_SESSION on register in Supabase v2)
       const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!active) return;
         if (session?.user) {
-          if (active) {
-            await fetchProfile(session.user.id, session.user.email || '');
-          }
+          await fetchProfile(session.user.id, session.user.email || '');
         } else {
-          if (active) {
-            setCurrentUser(null);
-            setLoading(false);
-          }
+          setCurrentUser(null);
+          setLoading(false);
         }
       });
 

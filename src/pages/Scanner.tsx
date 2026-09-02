@@ -7,7 +7,7 @@ import productsData from '../data/products.json';
 import { brands } from '../data/brands';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { evaluateBarcodeTampering, computeCombinedSecurity, saveBarcodeTamperingDetection } from '../services/fraudService';
+import { evaluateBarcodeTampering, computeCombinedSecurity, saveBarcodeTamperingDetection, isBarcodeTampered } from '../services/fraudService';
 import BrandBackground from '../components/BrandBackground';
 
 interface Product {
@@ -330,11 +330,8 @@ export default function Scanner() {
             // ignore session storage error
           }
 
-          // Enforce security gate if physical tampering is detected (detected === true OR level === 'high' OR score >= 0.80)
-          const isTampered =
-            cvResult.detected === true ||
-            cvResult.level === 'high' ||
-            (typeof cvResult.score === 'number' && cvResult.score >= 0.80);
+          // Enforce unified security gate if physical tampering is detected
+          const isTampered = isBarcodeTampered(cvResult);
 
           if (isTampered) {
             console.warn('[Scanner] Security Block: Physical barcode tampering detected!');
@@ -344,7 +341,7 @@ export default function Scanner() {
               isOpen: true,
               barcode: normalized,
               score: cvResult.score,
-              level: cvResult.level,
+              level: 'high',
               tamperingType: cvResult.tampering_type || 'physical_alteration',
             });
             // Stop purchase flow: do not proceed to product page or cart

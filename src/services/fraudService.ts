@@ -105,6 +105,23 @@ export async function evaluateBarcodeTampering(
   }
 }
 
+export function isBarcodeTampered(
+  result?: BarcodeTamperingResult | null
+): boolean {
+  if (!result) return false;
+  // High-confidence physical tampering criteria:
+  // 1. Model explicitly classified as detected = true AND assigned level = 'high', OR
+  // 2. Continuous tampering score >= 0.85 (calibrated high-confidence threshold).
+  // Low-risk genuine barcodes (score < 0.35, level = 'low') and ambiguous/medium signals (< 0.85) are cleared.
+  if (result.detected === true && result.level === 'high') {
+    return true;
+  }
+  if (typeof result.score === 'number' && result.score >= 0.85) {
+    return true;
+  }
+  return false;
+}
+
 export function computeCombinedSecurity(
   fraudResult?: FraudEvaluationResult | null,
   tamperingResult?: BarcodeTamperingResult | null
@@ -113,12 +130,12 @@ export function computeCombinedSecurity(
   const fLevel = fraudResult ? fraudResult.risk_level : 'low';
   const fAnomaly = fraudResult ? fraudResult.anomaly_detected : false;
 
-  const tDetected = tamperingResult ? tamperingResult.detected : false;
+  const tTampered = isBarcodeTampered(tamperingResult);
   const tScore = tamperingResult ? tamperingResult.score : 0.0;
-  const tLevel = tamperingResult ? tamperingResult.level : 'low';
+  const tLevel = tamperingResult ? (tTampered ? 'high' : tamperingResult.level) : 'low';
   const tType = tamperingResult ? tamperingResult.tampering_type : 'none';
 
-  const isFlagged = fLevel === 'high' || tLevel === 'high' || fAnomaly || tDetected;
+  const isFlagged = fLevel === 'high' || fAnomaly || tTampered;
 
   return {
     overall_status: isFlagged ? 'flagged' : 'cleared',
@@ -129,7 +146,7 @@ export function computeCombinedSecurity(
       anomaly_detected: fAnomaly,
     },
     barcode_tampering: {
-      tampering_detected: tDetected,
+      tampering_detected: tTampered,
       tampering_score: tScore,
       tampering_level: tLevel,
       tampering_type: tType,
@@ -175,13 +192,16 @@ export async function saveBarcodeTamperingDetection(
       }
     }
 
+    const isTampered = isBarcodeTampered(tamperingResult);
     const rawScore = typeof tamperingResult.score === 'number' ? tamperingResult.score : null;
     const cleanScore = rawScore !== null && !isNaN(rawScore)
       ? Number(Math.max(0, Math.min(1, rawScore)).toFixed(4))
       : null;
 
     let cleanLevel = (tamperingResult.level || 'low').toLowerCase();
-    if (cleanLevel !== 'low' && cleanLevel !== 'medium' && cleanLevel !== 'high') {
+    if (isTampered) {
+      cleanLevel = 'high';
+    } else if (cleanLevel !== 'medium' && cleanLevel !== 'high') {
       cleanLevel = 'low';
     }
 
@@ -192,7 +212,7 @@ export async function saveBarcodeTamperingDetection(
       barcode: String(barcode),
       tampering_score: cleanScore,
       risk_level: cleanLevel,
-      tampering_detected: Boolean(tamperingResult.detected),
+      tampering_detected: isTampered,
       tampering_type: tamperingResult.tampering_type || 'none',
       model_version: tamperingResult.model_version || 'barcode_cv_v1',
     };

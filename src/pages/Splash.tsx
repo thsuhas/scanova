@@ -2,14 +2,20 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ScanLine } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Splash() {
   const navigate = useNavigate();
+  const { isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
-    const timer = setTimeout(() => navigate('/auth'), 2500);
-    return () => clearTimeout(timer);
-  }, [navigate]);
+    if (!loading) {
+      const timer = setTimeout(() => {
+        navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [navigate, isAuthenticated, loading]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-[#0a0a1a]">
