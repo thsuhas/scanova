@@ -57,17 +57,86 @@ export default function CartDrawer({ onClose }: Props) {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successData, setSuccessData] = useState<PaymentSuccessData | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
+  const [paymentError, setPaymentError] = useState<string>('');
+
+  const subtotal = totalPrice;
+  const gst = Math.round(subtotal * 0.18);
+  const total = subtotal + gst;
+
+  const handleProceedToPayment = async () => {
+    setPaymentError('');
+    // Verify stock availability before entering payment screen
+    try {
+      for (const item of items) {
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('stock')
+          .eq('product_id', item.id)
+          .maybeSingle();
+
+        if (inv && inv.stock <= 0) {
+          setPaymentError(`"${item.name}" is Out of Stock. Please remove it to proceed.`);
+          return;
+        }
+        if (inv && item.quantity > inv.stock) {
+          setPaymentError(`Insufficient stock for "${item.name}". Available: ${inv.stock}`);
+          return;
+        }
+      }
+    } catch (e) {
+      // proceed if offline check fails
+    }
+
+    setShowPayment(true);
+  };
 
   const handlePaymentComplete = async (method: string) => {
+    if (!method) {
+      setPaymentError('Please select a payment method.');
+      return;
+    }
+
     setIsProcessing(true);
+    setPaymentError('');
+
+    // Pre-flight stock verification before finalizing payment
+    try {
+      for (const item of items) {
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('stock')
+          .eq('product_id', item.id)
+          .maybeSingle();
+
+        if (inv && inv.stock <= 0) {
+          setPaymentError(`"${item.name}" is Out of Stock. Please remove it from your cart.`);
+          setIsProcessing(false);
+          return;
+        }
+        if (inv && item.quantity > inv.stock) {
+          setPaymentError(`Insufficient stock for "${item.name}". Only ${inv.stock} available.`);
+          setIsProcessing(false);
+          return;
+        }
+      }
+    } catch (stockErr) {
+      console.warn('[Checkout] Stock pre-check warning:', stockErr);
+    }
+
+    let resolvedUserId = currentUser?.id || null;
+    if (!resolvedUserId) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        resolvedUserId = authData?.user?.id || null;
+      } catch (authErr) {
+        // fallback
+      }
+    }
+
     const id = generateOrderId();
     const txnId = generateTransactionId();
     const rcptNum = generateReceiptNumber();
-
-    // Calculate amounts
-    const subtotal = totalPrice;
-    const gst = Math.round(subtotal * 0.18);
-    const total = subtotal + gst;
     const { date, time } = formatDate();
 
     // Prepare order items
@@ -109,7 +178,7 @@ export default function CartDrawer({ onClose }: Props) {
           .from('orders')
           .insert({
             order_id: id,
-            user_id: currentUser?.id || null,
+            user_id: resolvedUserId,
             items: orderItems,
             subtotal,
             gst,
@@ -170,16 +239,7 @@ export default function CartDrawer({ onClose }: Props) {
       }
     }
 
-
-    // Trigger ML anomaly & fraud evaluation (safe, non-blocking)
-    if (dbOrderId) {
-      requestOrderFraudEvaluation(dbOrderId, currentUser?.id).catch(err => {
-        console.warn('Non-critical ML evaluation error:', err);
-      });
-    }
-
-
-    // Create receipt data
+    // Save receipt locally for immediate display
     const receiptData = {
       orderId: id,
       transactionId: txnId,
@@ -190,19 +250,27 @@ export default function CartDrawer({ onClose }: Props) {
       discount: 0,
       total,
       paymentMethod: method,
-      customerName: currentUser?.username,
+      customerName: currentUser?.username || 'Shopper',
       date,
       time,
       createdAt: new Date().toISOString(),
     };
 
-    // Save receipt to localStorage
-    const existingReceipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
-    existingReceipts.unshift(receiptData);
-    if (existingReceipts.length > 50) existingReceipts.pop();
-    localStorage.setItem('scanova_receipts', JSON.stringify(existingReceipts));
+    try {
+      const existingReceipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
+      existingReceipts.unshift(receiptData);
+      localStorage.setItem('scanova_receipts', JSON.stringify(existingReceipts));
+    } catch (e) {
+      console.error('Receipt save error:', e);
+    }
 
-    // Show success screen
+    // Trigger ML anomaly & fraud evaluation (safe, non-blocking)
+    if (dbOrderId) {
+      requestOrderFraudEvaluation(dbOrderId, resolvedUserId).catch(err => {
+        console.warn('Non-critical ML evaluation error:', err);
+      });
+    }
+
     setSuccessData({
       orderId: id,
       transactionId: txnId,
@@ -212,11 +280,11 @@ export default function CartDrawer({ onClose }: Props) {
     setShowPayment(false);
     setShowSuccess(true);
     setIsProcessing(false);
+    clearCart();
   };
 
   const handleViewBill = () => {
     if (!successData) return;
-    // Clear cart and navigate to receipt page
     clearCart();
     navigate(`/receipt/${successData.orderId}`);
     onClose();
@@ -226,11 +294,6 @@ export default function CartDrawer({ onClose }: Props) {
     clearCart();
     onClose();
   };
-
-  // Calculate GST (assuming 18%)
-  const subtotal = totalPrice;
-  const gst = Math.round(subtotal * 0.18);
-  const total = subtotal + gst;
 
   // Payment Success Screen
   if (showSuccess && successData) {
@@ -246,13 +309,13 @@ export default function CartDrawer({ onClose }: Props) {
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            transition={{ delay: 0.4, type: 'spring' }}
+            transition={{ delay: 0.4, type: 'spring', stiffness: 300 }}
           >
             <Check className="w-14 h-14 text-green-400" />
           </motion.div>
           <motion.div
-            className="absolute inset-0 rounded-full border-2 border-green-500"
-            animate={{ scale: [1, 1.4, 1], opacity: [0.5, 0, 0.5] }}
+            className="absolute inset-0 rounded-full border-2 border-green-500/50"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }}
             transition={{ duration: 2, repeat: Infinity }}
           />
         </motion.div>
@@ -379,28 +442,61 @@ export default function CartDrawer({ onClose }: Props) {
         </div>
 
         {/* Payment Options */}
-        <div className="space-y-2 mb-6">
-          <p className="text-white/40 text-xs mb-2">Pay with UPI App</p>
+        <div className="space-y-2 mb-4">
+          <p className="text-white/40 text-xs mb-2">Select Payment Method (Mandatory)</p>
           <div className="grid grid-cols-3 gap-2">
-            {upiApps.map(app => (
-              <button
-                key={app.id}
-                onClick={() => handlePaymentComplete(app.name)}
-                disabled={isProcessing}
-                className="glass rounded-xl p-3 flex flex-col items-center gap-1 hover:bg-white/10 transition-colors disabled:opacity-50"
-              >
-                <div className={`w-10 h-10 rounded-lg ${app.color} flex items-center justify-center text-white font-bold text-xs`}>
-                  {app.label}
-                </div>
-                <span className="text-white/60 text-xs">{app.name}</span>
-              </button>
-            ))}
+            {upiApps.map(app => {
+              const isSelected = selectedMethod === app.name;
+              return (
+                <button
+                  key={app.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedMethod(app.name);
+                    setPaymentError('');
+                  }}
+                  disabled={isProcessing}
+                  className={`rounded-xl p-3 flex flex-col items-center gap-1.5 transition-all relative ${
+                    isSelected
+                      ? 'bg-scanova-purple/20 border-2 border-scanova-cyan shadow-neon'
+                      : 'glass border border-white/10 hover:bg-white/5'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-lg ${app.color} flex items-center justify-center text-white font-bold text-xs shadow-md`}>
+                    {app.label}
+                  </div>
+                  <span className={`text-xs font-medium ${isSelected ? 'text-scanova-cyan font-bold' : 'text-white/70'}`}>{app.name}</span>
+                  {isSelected && (
+                    <div className="absolute top-1 right-1 w-4 h-4 bg-scanova-cyan rounded-full flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
+        {/* Validation Error Banner */}
+        {paymentError && (
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center font-medium"
+          >
+            {paymentError}
+          </motion.div>
+        )}
+
         <motion.button
           whileTap={{ scale: 0.97 }}
-          onClick={() => handlePaymentComplete('UPI')}
+          onClick={() => {
+            if (!selectedMethod) {
+              setPaymentError('Please select a payment method.');
+              return;
+            }
+            handlePaymentComplete(selectedMethod);
+          }}
           disabled={isProcessing}
           className="w-full py-3.5 rounded-xl gradient-primary text-white font-semibold shadow-neon flex items-center justify-center gap-2 disabled:opacity-70"
         >
@@ -410,7 +506,7 @@ export default function CartDrawer({ onClose }: Props) {
               Processing...
             </>
           ) : (
-            'Mark Payment Complete'
+            `Make Payment - ${formatPrice(total)}`
           )}
         </motion.button>
 
@@ -493,9 +589,15 @@ export default function CartDrawer({ onClose }: Props) {
               </div>
             </div>
 
+            {paymentError && (
+              <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs text-center font-medium">
+                {paymentError}
+              </div>
+            )}
+
             <motion.button
               whileTap={{ scale: 0.97 }}
-              onClick={() => setShowPayment(true)}
+              onClick={handleProceedToPayment}
               className="w-full mt-4 py-3.5 rounded-xl gradient-primary text-white font-semibold flex items-center justify-center gap-2 shadow-neon"
             >
               Checkout - {formatPrice(totalPrice)}

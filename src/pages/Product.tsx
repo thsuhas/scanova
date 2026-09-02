@@ -27,7 +27,7 @@ function formatPrice(price: number): string {
 export default function ProductPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { addItem, totalItems } = useCart();
+  const { addItem, items, totalItems } = useCart();
   const [product, setProduct] = useState<Product | null>(null);
   const [stock, setStock] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,7 +115,12 @@ export default function ProductPage() {
   const brandInfo = brands.find(b => b.name === product.brand);
   const brandId = brandInfo?.id || '';
 
+  const isOutOfStock = stock !== null && stock <= 0;
+  const existingItem = items.find(i => i.id === product.id);
+  const isMaxStockReached = stock !== null && existingItem !== undefined && existingItem.quantity >= stock;
+
   const handleAddToCart = () => {
+    if (isOutOfStock || isMaxStockReached) return;
     addItem({ id: product.id, name: product.name, brand: product.brand, size: product.size, price: product.price, image: product.image });
     setAdded(true);
     setShowToast(true);
@@ -167,8 +172,8 @@ export default function ProductPage() {
           </div>
           <div className="glass rounded-xl px-4 py-2">
             <p className="text-white/40 text-xs">Stock Level</p>
-            <p className={`font-semibold text-sm ${stock !== null && stock > 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {stock !== null ? (stock > 0 ? `${stock} available` : 'Out of Stock') : 'In Stock'}
+            <p className={`font-semibold text-sm ${isOutOfStock ? 'text-red-400' : 'text-green-400'}`}>
+              {isOutOfStock ? 'Out of Stock' : (stock !== null ? `${stock} available` : 'In Stock')}
             </p>
           </div>
         </div>
@@ -180,9 +185,27 @@ export default function ProductPage() {
 
       <div className="fixed bottom-0 left-0 right-0 z-40 glass-strong px-4 py-4 border-t border-white/5">
         <div className="flex gap-3 max-w-lg mx-auto">
-          <motion.button whileTap={{ scale: 0.95 }} onClick={handleAddToCart}
-            className={`flex-1 py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${added ? 'bg-green-500/20 border border-green-500/40 text-green-400' : 'glass neon-border text-white hover:shadow-neon'}`}>
-            {added ? <><Check className="w-4 h-4" /> Added</> : <><ShoppingCart className="w-4 h-4" /> Add to Cart</>}
+          <motion.button
+            whileTap={isOutOfStock || isMaxStockReached ? {} : { scale: 0.95 }}
+            onClick={handleAddToCart}
+            disabled={isOutOfStock || isMaxStockReached}
+            className={`flex-1 py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
+              isOutOfStock || isMaxStockReached
+                ? 'bg-white/5 border border-white/10 text-white/30 cursor-not-allowed opacity-50'
+                : added
+                ? 'bg-green-500/20 border border-green-500/40 text-green-400'
+                : 'glass neon-border text-white hover:shadow-neon'
+            }`}
+          >
+            {isOutOfStock ? (
+              <><X className="w-4 h-4 text-red-400" /> Out of Stock</>
+            ) : isMaxStockReached ? (
+              'Max Stock in Cart'
+            ) : added ? (
+              <><Check className="w-4 h-4" /> Added</>
+            ) : (
+              <><ShoppingCart className="w-4 h-4" /> Add to Cart</>
+            )}
           </motion.button>
           <motion.button whileTap={{ scale: 0.95 }} onClick={() => setShowCart(true)}
             className="flex-1 py-3.5 rounded-xl gradient-primary text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-neon">

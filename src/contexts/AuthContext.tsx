@@ -10,6 +10,7 @@ export interface User {
 interface AuthContextType {
   isAuthenticated: boolean;
   currentUser: User | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<{ error: any }>;
   signup: (username: string, email: string, password: string) => Promise<{ error: any }>;
   logout: () => Promise<void>;
@@ -48,14 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       // Listen for auth changes (guaranteed to fire INITIAL_SESSION on register in Supabase v2)
-      const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (session?.user) {
           if (active) {
-            setTimeout(async () => {
-              if (active) {
-                await fetchProfile(session.user!.id, session.user!.email || '');
-              }
-            }, 0);
+            await fetchProfile(session.user.id, session.user.email || '');
           }
         } else {
           if (active) {
@@ -80,14 +77,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 
   const login = async (emailOrUsername: string, password: string) => {
-    let targetEmail = emailOrUsername;
+    let targetEmail = emailOrUsername.trim();
     
-    if (!emailOrUsername.includes('@')) {
+    if (!targetEmail.includes('@')) {
       try {
         const { data, error } = await supabase
           .from('profiles')
           .select('email')
-          .eq('username', emailOrUsername)
+          .eq('username', targetEmail)
           .maybeSingle();
 
         if (error) {
@@ -103,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: targetEmail,
         password,
       });
@@ -116,6 +113,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         return { error };
       }
+
+      // Immediately resolve user profile and set currentUser state before returning
+      if (data?.user) {
+        let username = data.user.email?.split('@')[0] || 'shopper';
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', data.user.id)
+            .maybeSingle();
+          if (profile?.username) {
+            username = profile.username;
+          }
+        } catch (e) {
+          // ignore profile lookup fallback
+        }
+
+        setCurrentUser({
+          id: data.user.id,
+          email: data.user.email || targetEmail,
+          username,
+        });
+        setLoading(false);
+      }
+
       return { error: null };
     } catch (err: any) {
       if (err.message?.includes('Failed to fetch')) {
@@ -200,8 +222,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAuthenticated = currentUser !== null;
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, currentUser, login, signup, logout, resetPassword }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ isAuthenticated, currentUser, loading, login, signup, logout, resetPassword }}>
+      {children}
     </AuthContext.Provider>
   );
 }

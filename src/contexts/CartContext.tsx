@@ -105,94 +105,164 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
 
   const addItem = useCallback(async (item: Omit<CartItem, 'quantity'>) => {
-    if (!currentUser) return;
+    // Check available stock
+    let availableStock = 20;
+    try {
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('stock')
+        .eq('product_id', item.id)
+        .maybeSingle();
+      if (inv && typeof inv.stock === 'number') {
+        availableStock = inv.stock;
+      }
+    } catch (e) {
+      // offline fallback
+    }
 
-    // Determine target quantity
+    if (availableStock <= 0) {
+      console.warn('[CartContext] Product is out of stock:', item.name);
+      return;
+    }
+
+    // Determine target quantity capped by available stock
     const existing = items.find(i => i.id === item.id);
-    const newQty = existing ? existing.quantity + 1 : 1;
+    const newQty = existing ? Math.min(existing.quantity + 1, availableStock) : 1;
 
     // Update local state instantly (Optimistic UI)
     setItems(prev => {
       if (existing) {
-        return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return prev.map(i => i.id === item.id ? { ...i, quantity: newQty } : i);
       }
       return [...prev, { ...item, quantity: 1 }];
     });
 
-    try {
-      const { error } = await supabase
-        .from('cart_items')
-        .upsert({
+    if (currentUser) {
+      try {
+        const payload: any = {
           user_id: currentUser.id,
           product_id: item.id,
-          quantity: newQty
-        }, {
-          onConflict: 'user_id,product_id'
-        });
+          quantity: newQty,
+        };
+        if (currentUser.email) {
+          payload.email = currentUser.email;
+        }
 
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error adding item to cart:', err);
+        const { error } = await supabase
+          .from('cart_items')
+          .upsert(payload, {
+            onConflict: 'user_id,product_id'
+          });
+
+        if (error) {
+          // If email column was not recognized, retry without email
+          if (error.message?.includes('email')) {
+            await supabase
+              .from('cart_items')
+              .upsert({
+                user_id: currentUser.id,
+                product_id: item.id,
+                quantity: newQty
+              }, {
+                onConflict: 'user_id,product_id'
+              });
+          } else {
+            throw error;
+          }
+        }
+      } catch (err) {
+        console.error('Error adding item to cart:', err);
+      }
     }
   }, [currentUser, items]);
 
   const removeItem = useCallback(async (id: string) => {
-    if (!currentUser) return;
-
     // Update local state instantly
     setItems(prev => prev.filter(i => i.id !== id));
 
-    try {
-      const { error } = await supabase
-        .from('cart_items')
-        .delete()
-        .eq('user_id', currentUser.id)
-        .eq('product_id', id);
+    if (currentUser) {
+      try {
+        const { error } = await supabase
+          .from('cart_items')
+          .delete()
+          .eq('user_id', currentUser.id)
+          .eq('product_id', id);
 
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error removing item from cart:', err);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Error removing item from cart:', err);
+      }
     }
   }, [currentUser]);
 
   const updateQuantity = useCallback(async (id: string, quantity: number) => {
-    if (!currentUser) return;
-
     if (quantity < 1) {
       removeItem(id);
       return;
     }
 
-    // Update local state instantly
-    setItems(prev => prev.map(i => i.id === id ? { ...i, quantity } : i));
-
+    // Check available stock limit
+    let availableStock = 20;
     try {
-      const { error } = await supabase
-        .from('cart_items')
-        .update({ quantity })
-        .eq('user_id', currentUser.id)
-        .eq('product_id', id);
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('stock')
+        .eq('product_id', id)
+        .maybeSingle();
+      if (inv && typeof inv.stock === 'number') {
+        availableStock = inv.stock;
+      }
+    } catch (e) {
+      // offline fallback
+    }
 
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error updating cart item quantity:', err);
+    const cappedQty = Math.min(quantity, Math.max(1, availableStock));
+
+    // Update local state instantly
+    setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: cappedQty } : i));
+
+    if (currentUser) {
+      try {
+        const updatePayload: any = { quantity: cappedQty };
+        if (currentUser.email) {
+          updatePayload.email = currentUser.email;
+        }
+
+        const { error } = await supabase
+          .from('cart_items')
+          .update(updatePayload)
+          .eq('user_id', currentUser.id)
+          .eq('product_id', id);
+
+        if (error) {
+          if (error.message?.includes('email')) {
+            await supabase
+              .from('cart_items')
+              .update({ quantity: cappedQty })
+              .eq('user_id', currentUser.id)
+              .eq('product_id', id);
+          } else {
+            throw error;
+          }
+        }
+      } catch (err) {
+        console.error('Error updating cart item quantity:', err);
+      }
     }
   }, [currentUser, removeItem]);
 
   const clearCart = useCallback(async () => {
-    if (!currentUser) return;
-
     setItems([]);
-
-    try {
-      const { error } = await supabase
-        .from('cart_items')
-        .delete()
-        .eq('user_id', currentUser.id);
-
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error clearing cart:', err);
+    localStorage.removeItem('scanova_cart');
+    if (currentUser) {
+      try {
+        await supabase
+          .from('cart_items')
+          .delete()
+          .eq('user_id', currentUser.id);
+      } catch (e) {
+        console.warn('[CartContext] Error clearing cart from Supabase:', e);
+      }
     }
   }, [currentUser]);
 

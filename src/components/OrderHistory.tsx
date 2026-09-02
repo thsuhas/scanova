@@ -48,7 +48,17 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
       setLoading(true);
       let supabaseOrders: ReceiptData[] = [];
 
-      if (currentUser) {
+      let userId = currentUser?.id;
+      if (!userId) {
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          userId = authData?.user?.id;
+        } catch (e) {
+          // fallback
+        }
+      }
+
+      if (userId) {
         try {
           const { data, error } = await supabase
             .from('orders')
@@ -65,7 +75,7 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
                 receipt_number
               )
             `)
-            .eq('user_id', currentUser.id)
+            .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
           if (error) throw error;
@@ -87,7 +97,7 @@ export default function OrderHistory({ onClose }: OrderHistoryProps) {
                 discount: 0,
                 total: Number(order.total),
                 paymentMethod: order.payment_method,
-                customerName: currentUser.username,
+                customerName: currentUser?.username || 'Shopper',
                 date: dateStr,
                 time: timeStr,
                 createdAt: order.created_at,

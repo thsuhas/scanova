@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { User, Mail, Shield, Calendar, ScanLine, ShoppingCart, LogOut, Receipt, History, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import OrderHistory from './OrderHistory';
 
 interface Props {
@@ -15,6 +16,42 @@ export default function ProfileModal({ onClose }: Props) {
   const { totalItems } = useCart();
   const navigate = useNavigate();
   const [showOrderHistory, setShowOrderHistory] = useState(false);
+  const [orderCount, setOrderCount] = useState<number>(() => {
+    const receipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
+    return receipts.length;
+  });
+
+  useEffect(() => {
+    const fetchOrderCount = async () => {
+      let userId = currentUser?.id;
+      if (!userId) {
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          userId = authData?.user?.id;
+        } catch (e) {
+          // fallback
+        }
+      }
+
+      if (userId) {
+        try {
+          const { count, error } = await supabase
+            .from('orders')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', userId);
+
+          if (!error && typeof count === 'number') {
+            const localReceipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
+            setOrderCount(Math.max(count, localReceipts.length));
+          }
+        } catch (e) {
+          // fallback to local count
+        }
+      }
+    };
+
+    fetchOrderCount();
+  }, [currentUser]);
 
   const handleLogout = () => {
     logout();
@@ -28,10 +65,6 @@ export default function ProfileModal({ onClose }: Props) {
   const handleCloseHistory = () => {
     setShowOrderHistory(false);
   };
-
-  // Get receipt count
-  const receipts = JSON.parse(localStorage.getItem('scanova_receipts') || '[]');
-  const orderCount = receipts.length;
 
   if (showOrderHistory) {
     return <OrderHistory onClose={handleCloseHistory} />;
