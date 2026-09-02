@@ -159,20 +159,74 @@ export default function Scanner() {
           setStatus('detected');
           setStatusMessage('Barcode Detected!');
 
-          // Capture current video frame snapshot for CV physical tampering inspection
+          // Crop detected barcode region of interest (ROI) for CV physical tampering inspection
           let snapshot: string | null = null;
-          if (videoRef.current && videoRef.current.videoWidth > 0) {
+          if (videoRef.current && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
             try {
+              const vWidth = videoRef.current.videoWidth;
+              const vHeight = videoRef.current.videoHeight;
+              
+              // Extract detected barcode coordinates from ZXing result points
+              const points = (typeof result.getResultPoints === 'function' ? result.getResultPoints() : null) || [];
+              let cropX = 0;
+              let cropY = 0;
+              let cropW = vWidth;
+              let cropH = vHeight;
+
+              if (points.length >= 2) {
+                const xs = points.map((p: any) => typeof p.getX === 'function' ? p.getX() : (p.x || 0));
+                const ys = points.map((p: any) => typeof p.getY === 'function' ? p.getY() : (p.y || 0));
+                
+                const minX = Math.min(...xs);
+                const maxX = Math.max(...xs);
+                const minY = Math.min(...ys);
+                const maxY = Math.max(...ys);
+                
+                const barcodeWidth = Math.max(maxX - minX, 60);
+                const barcodeHeight = Math.max(maxY - minY, 20);
+                
+                const centerX = (minX + maxX) / 2;
+                const centerY = (minY + maxY) / 2;
+                
+                // 1D retail barcodes have vertical bars extending across the scan line
+                // Apply proportional padding: 35% horizontal margin (quiet zones) and vertical expansion
+                const spanX = Math.max(barcodeWidth * 1.35, 160);
+                const spanY = Math.max(barcodeHeight * 2.5, barcodeWidth * 0.70, 120);
+                
+                cropX = Math.max(0, Math.min(vWidth - 50, centerX - spanX / 2));
+                cropY = Math.max(0, Math.min(vHeight - 50, centerY - spanY / 2));
+                cropW = Math.max(50, Math.min(vWidth - cropX, spanX));
+                cropH = Math.max(50, Math.min(vHeight - cropY, spanY));
+              } else {
+                // Fallback: Crop center 55% width x 40% height viewfinder region
+                const spanX = vWidth * 0.55;
+                const spanY = vHeight * 0.40;
+                cropX = Math.max(0, (vWidth - spanX) / 2);
+                cropY = Math.max(0, (vHeight - spanY) / 2);
+                cropW = Math.min(vWidth - cropX, spanX);
+                cropH = Math.min(vHeight - cropY, spanY);
+              }
+
               const canvas = document.createElement('canvas');
-              canvas.width = videoRef.current.videoWidth;
-              canvas.height = videoRef.current.videoHeight;
+              canvas.width = Math.round(cropW);
+              canvas.height = Math.round(cropH);
               const ctx = canvas.getContext('2d');
               if (ctx) {
-                ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(
+                  videoRef.current,
+                  Math.round(cropX),
+                  Math.round(cropY),
+                  Math.round(cropW),
+                  Math.round(cropH),
+                  0,
+                  0,
+                  Math.round(cropW),
+                  Math.round(cropH)
+                );
                 snapshot = canvas.toDataURL('image/png');
               }
             } catch (e) {
-              console.warn('[Scanner] Could not capture frame snapshot for CV check:', e);
+              console.warn('[Scanner] Could not capture cropped frame snapshot for CV check:', e);
             }
           }
 
