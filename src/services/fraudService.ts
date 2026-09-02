@@ -152,6 +152,29 @@ export async function saveBarcodeTamperingDetection(
   if (!barcode || !tamperingResult) return false;
 
   try {
+    let resolvedUserId = userId || null;
+    let resolvedUsername = username || null;
+
+    // If userId or username was not passed directly, resolve from current Supabase session
+    if (!resolvedUserId || !resolvedUsername) {
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user) {
+          resolvedUserId = resolvedUserId || authData.user.id;
+          if (!resolvedUsername) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('username')
+              .eq('id', authData.user.id)
+              .maybeSingle();
+            resolvedUsername = profile?.username || authData.user.email?.split('@')[0] || null;
+          }
+        }
+      } catch (authErr) {
+        // non-blocking fallback
+      }
+    }
+
     const rawScore = typeof tamperingResult.score === 'number' ? tamperingResult.score : null;
     const cleanScore = rawScore !== null && !isNaN(rawScore)
       ? Number(Math.max(0, Math.min(1, rawScore)).toFixed(4))
@@ -163,8 +186,8 @@ export async function saveBarcodeTamperingDetection(
     }
 
     const payload = {
-      user_id: userId || null,
-      username: username || null,
+      user_id: resolvedUserId,
+      username: resolvedUsername,
       order_id: orderId || null,
       barcode: String(barcode),
       tampering_score: cleanScore,

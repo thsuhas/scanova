@@ -310,13 +310,17 @@ export default function Scanner() {
         if (cvResult) {
           console.log('[Scanner] Barcode CV tampering evaluation:', cvResult);
 
-          // Save CV evaluation result to Supabase barcode_tampering_detections table
-          saveBarcodeTamperingDetection({
-            userId: currentUser?.id || null,
-            username: currentUser?.username || null,
-            barcode: normalized,
-            tamperingResult: cvResult,
-          }).catch(err => console.warn('[Scanner] Non-blocking database logging error:', err));
+          // Save CV evaluation result to Supabase barcode_tampering_detections table before proceeding
+          try {
+            await saveBarcodeTamperingDetection({
+              userId: currentUser?.id || null,
+              username: currentUser?.username || null,
+              barcode: normalized,
+              tamperingResult: cvResult,
+            });
+          } catch (dbErr) {
+            console.warn('[Scanner] Non-blocking database logging error:', dbErr);
+          }
 
           try {
             sessionStorage.setItem('last_scanned_barcode_tampering', JSON.stringify(cvResult));
