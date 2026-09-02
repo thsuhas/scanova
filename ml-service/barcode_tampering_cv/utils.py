@@ -51,18 +51,22 @@ def load_image_to_pil(image_input: Union[str, bytes, Path, Image.Image]) -> Imag
         return Image.open(image_input).convert("RGB")
 
     if isinstance(image_input, str):
-        # 1. Check if it's a file path on disk
-        potential_path = Path(image_input)
-        if potential_path.exists() and potential_path.is_file():
-            return Image.open(potential_path).convert("RGB")
-
-        # 2. Check if it's a data URI (e.g. data:image/png;base64,...)
+        # 1. Check if it's a data URI (e.g. data:image/png;base64,...)
         if image_input.startswith("data:"):
             match = re.search(r"base64,(.*)$", image_input)
             if match:
                 b64_data = match.group(1)
             else:
                 raise ValueError("Invalid data URI format for image")
+        # 2. Check if it's a short file path on disk (avoid long strings hitting OS stat)
+        elif len(image_input) < 512:
+            try:
+                potential_path = Path(image_input)
+                if potential_path.exists() and potential_path.is_file():
+                    return Image.open(potential_path).convert("RGB")
+            except OSError:
+                pass
+            b64_data = image_input
         else:
             b64_data = image_input
 
