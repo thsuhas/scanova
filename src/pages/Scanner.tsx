@@ -191,18 +191,17 @@ export default function Scanner() {
                 const maxY = Math.max(...ys);
                 
                 const barcodeWidth = Math.max(maxX - minX, 60);
-                const barcodeHeight = Math.max(maxY - minY, 20);
                 
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
                 
-                // 1D retail barcodes have vertical bars extending across the scan line
-                // Apply proportional padding: 35% horizontal margin (quiet zones) and vertical expansion
-                const spanX = Math.max(barcodeWidth * 1.35, 160);
-                const spanY = Math.max(barcodeHeight * 2.5, barcodeWidth * 0.70, 120);
+                // 1D retail barcodes (UPC/EAN) have a standard height-to-width aspect ratio of ~0.65-0.70
+                // Expand horizontal margins for quiet zones and vertical height proportionally to barcode width
+                const spanX = Math.max(barcodeWidth * 1.30, 160);
+                const spanY = Math.max(barcodeWidth * 0.70, 100);
                 
-                cropX = Math.max(0, Math.min(vWidth - 50, centerX - spanX / 2));
-                cropY = Math.max(0, Math.min(vHeight - 50, centerY - spanY / 2));
+                cropX = Math.max(0, Math.min(vWidth - spanX, centerX - spanX / 2));
+                cropY = Math.max(0, Math.min(vHeight - spanY, centerY - spanY / 2));
                 cropW = Math.max(50, Math.min(vWidth - cropX, spanX));
                 cropH = Math.max(50, Math.min(vHeight - cropY, spanY));
               } else {
@@ -275,14 +274,19 @@ export default function Scanner() {
   const handleDismissTamperingAlert = useCallback(() => {
     setTamperingAlert(null);
     setErrorMessage('');
-    scannedRef.current = false;
-    setStatus('scanning');
-    setStatusMessage('Scanning Barcode...');
 
-    // If stream or reader was lost, cleanly restart scanner
-    if (!readerRef.current || !videoRef.current?.srcObject) {
-      startScanner();
-    }
+    // Wait 500ms before unpausing scanning to allow camera sensor and viewfinder to stabilize
+    setTimeout(() => {
+      if (!isMountedRef.current) return;
+      scannedRef.current = false;
+      setStatus('scanning');
+      setStatusMessage('Scanning Barcode...');
+
+      // If stream or reader was lost, cleanly restart scanner
+      if (!readerRef.current || !videoRef.current?.srcObject) {
+        startScanner();
+      }
+    }, 500);
   }, [startScanner]);
 
   const handleBarcode = useCallback(async (code: string, imageSnapshot?: string | null) => {
@@ -322,8 +326,13 @@ export default function Scanner() {
             // ignore session storage error
           }
 
-          // Enforce security gate if high physical tampering is detected
-          if (cvResult.detected || cvResult.level === 'high') {
+          // Enforce security gate if physical tampering is detected (detected === true OR level === 'high' OR score >= 0.80)
+          const isTampered =
+            cvResult.detected === true ||
+            cvResult.level === 'high' ||
+            (typeof cvResult.score === 'number' && cvResult.score >= 0.80);
+
+          if (isTampered) {
             console.warn('[Scanner] Security Block: Physical barcode tampering detected!');
             setStatus('error');
             setStatusMessage('Tampering Detected');
