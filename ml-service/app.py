@@ -176,16 +176,16 @@ def predict_order_fraud(req: OrderPredictionRequest):
         action_taken = "flag_for_gate_check"
 
     risk_factors = {
-        "total_order_value": float(features.get("total_order_value") or 0.0),
-        "item_count": float(features.get("item_count") or 0.0),
-        "total_quantity": float(features.get("total_quantity") or 0.0),
-        "average_item_price": float(features.get("average_item_price") or 0.0),
-        "payment_discrepancy": float(features.get("payment_discrepancy") or 0.0),
-        "is_payment_completed": float(features.get("is_payment_completed") or 1.0),
-        "manual_scan_ratio": features.get("manual_scan_ratio"),
-        "failed_scan_ratio": features.get("failed_scan_ratio"),
-        "mismatch_detected": features.get("mismatch_detected"),
-        "account_age_days": float(features.get("account_age_days") or 0.0),
+        "total_order_value": float(features.get("total_order_value", 0.0)),
+        "item_count": float(features.get("item_count", 0.0)),
+        "total_quantity": float(features.get("total_quantity", 0.0)),
+        "average_item_price": float(features.get("average_item_price", 0.0)),
+        "payment_discrepancy": float(features.get("payment_discrepancy", 0.0)),
+        "is_payment_completed": float(features.get("is_payment_completed", 1.0)),
+        "manual_scan_ratio": float(features.get("manual_scan_ratio", 0.0)),
+        "failed_scan_ratio": float(features.get("failed_scan_ratio", 0.0)),
+        "mismatch_detected": float(features.get("mismatch_detected", 0.0)),
+        "account_age_days": float(features.get("account_age_days", 0.0)),
         "evaluated_features_count": len(MODEL_FEATURES),
     }
 

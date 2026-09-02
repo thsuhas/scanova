@@ -99,7 +99,14 @@ def train_isolation_forest(
 
     X = df[MODEL_FEATURES].copy()
 
-    imputer = SimpleImputer(strategy="median", fill_value=0.0)
+    # Configure imputer with median strategy, fill_value=0.0, and keep_empty_features=True
+    imputer = SimpleImputer(strategy="median", fill_value=0.0, keep_empty_features=True)
+    imputer.fit(X)
+
+    # Sanitize any unobserved feature statistics to 0.0
+    if hasattr(imputer, "statistics_") and imputer.statistics_ is not None:
+        imputer.statistics_ = np.nan_to_num(imputer.statistics_, nan=0.0, posinf=0.0, neginf=0.0)
+
     model = IsolationForest(
         n_estimators=n_estimators,
         contamination=contamination,
@@ -107,17 +114,22 @@ def train_isolation_forest(
         max_samples=max_samples,
     )
 
+    imputed_X = np.nan_to_num(imputer.transform(X), nan=0.0, posinf=0.0, neginf=0.0)
+    model.fit(imputed_X)
+
     pipeline = Pipeline([
         ("imputer", imputer),
         ("model", model),
     ])
 
-    pipeline.fit(X)
-
-    scores = pipeline.named_steps["model"].decision_function(pipeline.named_steps["imputer"].transform(X))
-    predictions = pipeline.named_steps["model"].predict(pipeline.named_steps["imputer"].transform(X))
+    scores = np.nan_to_num(model.decision_function(imputed_X), nan=0.0, posinf=0.0, neginf=0.0)
+    predictions = model.predict(imputed_X)
     anomalies_count = int(np.sum(predictions == -1))
-    anomaly_percentage = float((anomalies_count / available_records) * 100.0)
+    anomaly_percentage = float((anomalies_count / available_records) * 100.0) if available_records > 0 else 0.0
+
+    min_score = float(np.min(scores)) if len(scores) > 0 else 0.0
+    max_score = float(np.max(scores)) if len(scores) > 0 else 0.0
+    mean_score = float(np.mean(scores)) if len(scores) > 0 else 0.0
 
     metadata = {
         "status": "trained_successfully",
@@ -135,9 +147,9 @@ def train_isolation_forest(
             "max_samples": max_samples,
         },
         "score_stats": {
-            "min_score": float(np.min(scores)),
-            "max_score": float(np.max(scores)),
-            "mean_score": float(np.mean(scores)),
+            "min_score": round(min_score, 4),
+            "max_score": round(max_score, 4),
+            "mean_score": round(mean_score, 4),
         },
         "timestamp": datetime.utcnow().isoformat(),
     }

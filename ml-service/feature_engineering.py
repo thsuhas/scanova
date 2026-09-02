@@ -22,9 +22,22 @@ from supabase_client import (
 )
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely converts any value to a finite float, returning default if None, NaN, or Inf."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        if np.isnan(f) or np.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+
 def _parse_timestamp(val: Any) -> Optional[datetime]:
     """Safely parse ISO/string timestamp or datetime object."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
+    if val is None or (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
         return None
     if isinstance(val, datetime):
         return val
@@ -38,14 +51,14 @@ def _parse_timestamp(val: Any) -> Optional[datetime]:
 def calculate_scanning_features(scan_events: List[Dict[str, Any]]) -> Dict[str, float]:
     """
     Calculate scanning behavior features from raw scan telemetry events.
-    Handles empty/unavailable telemetry by setting ratios and velocity to NaN.
+    Handles empty/unavailable telemetry safely by defaulting to 0.0.
     """
     if not scan_events:
         return {
-            "scan_count": np.nan,
-            "manual_scan_ratio": np.nan,
-            "failed_scan_ratio": np.nan,
-            "scan_velocity": np.nan,
+            "scan_count": 0.0,
+            "manual_scan_ratio": 0.0,
+            "failed_scan_ratio": 0.0,
+            "scan_velocity": 0.0,
         }
 
     total_scans = len(scan_events)
@@ -55,23 +68,24 @@ def calculate_scanning_features(scan_events: List[Dict[str, Any]]) -> Dict[str, 
     manual_ratio = (manual_scans / total_scans) if total_scans > 0 else 0.0
     failed_ratio = (failed_scans / total_scans) if total_scans > 0 else 0.0
 
-    timestamps = []
+    timestamps: List[datetime] = []
     for s in scan_events:
         ts = _parse_timestamp(s.get("scanned_at"))
         if ts:
             timestamps.append(ts)
 
-    scan_velocity = np.nan
+    scan_velocity = 0.0
     if len(timestamps) > 1:
         timestamps.sort()
         intervals = [(t2 - t1).total_seconds() for t1, t2 in zip(timestamps[:-1], timestamps[1:])]
-        scan_velocity = float(np.mean(intervals)) if intervals else np.nan
+        if intervals:
+            scan_velocity = _safe_float(np.mean(intervals), default=0.0)
 
     return {
         "scan_count": float(total_scans),
-        "manual_scan_ratio": float(manual_ratio),
-        "failed_scan_ratio": float(failed_ratio),
-        "scan_velocity": float(scan_velocity) if not np.isnan(scan_velocity) else np.nan,
+        "manual_scan_ratio": _safe_float(manual_ratio, 0.0),
+        "failed_scan_ratio": _safe_float(failed_ratio, 0.0),
+        "scan_velocity": _safe_float(scan_velocity, 0.0),
     }
 
 
@@ -83,26 +97,33 @@ def calculate_cart_order_features(
     Calculate cart and order behavior features.
     Extracts item counts and quantities from order_items table or fallback items JSONB.
     """
-    subtotal = float(order.get("subtotal") or 0.0)
-    gst = float(order.get("gst") or 0.0)
-    total_order_value = float(order.get("total") or (subtotal + gst))
+    subtotal = _safe_float(order.get("subtotal"), 0.0)
+    gst = _safe_float(order.get("gst"), 0.0)
+    total_order_value = _safe_float(order.get("total"), subtotal + gst)
 
     quantities: List[int] = []
 
     if order_items:
         for item in order_items:
-            qty = int(item.get("quantity") or 0)
-            if qty > 0:
-                quantities.append(qty)
+            try:
+                qty = int(item.get("quantity") or 0)
+                if qty > 0:
+                    quantities.append(qty)
+            except (ValueError, TypeError):
+                pass
     elif "items" in order and isinstance(order["items"], list):
         for item in order["items"]:
             if isinstance(item, dict):
-                qty = int(item.get("quantity") or 1)
-                quantities.append(qty)
+                try:
+                    qty = int(item.get("quantity") or 1)
+                    if qty > 0:
+                        quantities.append(qty)
+                except (ValueError, TypeError):
+                    pass
 
-    item_count = len(quantities)
-    total_quantity = sum(quantities)
-    max_item_quantity = max(quantities) if quantities else 0
+    item_count = float(len(quantities))
+    total_quantity = float(sum(quantities))
+    max_item_quantity = float(max(quantities)) if quantities else 0.0
     average_item_price = (total_order_value / total_quantity) if total_quantity > 0 else 0.0
 
     return {
@@ -111,7 +132,7 @@ def calculate_cart_order_features(
         "total_order_value": float(total_order_value),
         "item_count": float(item_count),
         "total_quantity": float(total_quantity),
-        "average_item_price": float(average_item_price),
+        "average_item_price": _safe_float(average_item_price, 0.0),
         "max_item_quantity": float(max_item_quantity),
     }
 
@@ -123,35 +144,39 @@ def calculate_payment_features(
     """
     Calculate payment behavior features and verify alignment with order value.
     """
-    order_total = float(order.get("total") or 0.0)
+    order_total = _safe_float(order.get("total"), 0.0)
 
     if not payments:
         payment_method = str(order.get("payment_method", "")).lower()
         payment_status = str(order.get("payment_status", "")).lower()
         is_completed = 1.0 if payment_status == "completed" else 0.0
 
+        payment_amount = order_total if is_completed == 1.0 else 0.0
+        payment_ratio = 1.0 if (is_completed == 1.0 and order_total > 0) else (1.0 if order_total == 0 else 0.0)
+        discrepancy = 0.0 if is_completed == 1.0 else order_total
+
         return {
-            "payment_amount": order_total if is_completed else np.nan,
-            "payment_to_order_ratio": 1.0 if (is_completed and order_total > 0) else np.nan,
-            "payment_discrepancy": 0.0 if is_completed else np.nan,
-            "is_payment_completed": is_completed,
+            "payment_amount": float(payment_amount),
+            "payment_to_order_ratio": float(payment_ratio),
+            "payment_discrepancy": float(discrepancy),
+            "is_payment_completed": float(is_completed),
             "payment_method_card": 1.0 if "card" in payment_method else 0.0,
             "payment_method_upi": 1.0 if "upi" in payment_method else 0.0,
             "payment_method_cash": 1.0 if "cash" in payment_method else 0.0,
         }
 
-    total_paid = sum(float(p.get("amount") or 0.0) for p in payments)
+    total_paid = sum(_safe_float(p.get("amount"), 0.0) for p in payments)
     completed_payments = [p for p in payments if str(p.get("payment_status", "")).lower() == "completed"]
     is_completed = 1.0 if (completed_payments or str(order.get("payment_status", "")).lower() == "completed") else 0.0
 
-    payment_ratio = (total_paid / order_total) if order_total > 0 else (1.0 if total_paid == 0 else np.nan)
+    payment_ratio = (total_paid / order_total) if order_total > 0 else (1.0 if total_paid == 0 else 0.0)
     discrepancy = abs(total_paid - order_total)
     first_method = str(payments[0].get("payment_method", order.get("payment_method", ""))).lower()
 
     return {
         "payment_amount": float(total_paid),
-        "payment_to_order_ratio": float(payment_ratio),
-        "payment_discrepancy": float(discrepancy),
+        "payment_to_order_ratio": _safe_float(payment_ratio, 0.0),
+        "payment_discrepancy": _safe_float(discrepancy, 0.0),
         "is_payment_completed": float(is_completed),
         "payment_method_card": 1.0 if "card" in first_method else 0.0,
         "payment_method_upi": 1.0 if "upi" in first_method else 0.0,
@@ -167,10 +192,9 @@ def calculate_exit_verification_features(
     """
     Calculate exit gate and turnstile verification features.
     """
-    qr_scan_count_val = order.get("qr_scan_count")
-    qr_scan_count = float(qr_scan_count_val) if qr_scan_count_val is not None else np.nan
+    qr_scan_count = _safe_float(order.get("qr_scan_count"), 0.0)
 
-    time_to_exit_seconds = np.nan
+    time_to_exit_seconds = 0.0
     first_scanned_at = _parse_timestamp(order.get("first_scanned_at"))
     order_created_at = _parse_timestamp(order.get("created_at"))
     if first_scanned_at and order_created_at:
@@ -178,26 +202,26 @@ def calculate_exit_verification_features(
 
     if not exit_verification:
         return {
-            "qr_scan_count": qr_scan_count,
-            "time_to_exit_seconds": time_to_exit_seconds,
-            "billed_item_count": np.nan,
-            "verified_item_count": np.nan,
-            "quantity_difference": np.nan,
-            "mismatch_detected": np.nan,
-            "unbilled_item_count": np.nan,
-            "missing_item_count": np.nan,
-            "excess_item_count": np.nan,
+            "qr_scan_count": float(qr_scan_count),
+            "time_to_exit_seconds": _safe_float(time_to_exit_seconds, 0.0),
+            "billed_item_count": 0.0,
+            "verified_item_count": 0.0,
+            "quantity_difference": 0.0,
+            "mismatch_detected": 0.0,
+            "unbilled_item_count": 0.0,
+            "missing_item_count": 0.0,
+            "excess_item_count": 0.0,
         }
 
-    billed_count = float(exit_verification.get("total_billed_items") or 0.0)
-    verified_count = float(exit_verification.get("total_verified_items") or 0.0)
+    billed_count = _safe_float(exit_verification.get("total_billed_items"), 0.0)
+    verified_count = _safe_float(exit_verification.get("total_verified_items"), 0.0)
     qty_diff = abs(verified_count - billed_count)
     mismatch_bool = exit_verification.get("mismatch_detected")
     mismatch_val = 1.0 if mismatch_bool else 0.0
 
-    unbilled_count = np.nan
-    missing_count = np.nan
-    excess_count = np.nan
+    unbilled_count = 0.0
+    missing_count = 0.0
+    excess_count = 0.0
 
     if exit_items is not None:
         unbilled_count = float(sum(1 for i in exit_items if str(i.get("status", "")).lower() == "unbilled"))
@@ -205,15 +229,15 @@ def calculate_exit_verification_features(
         excess_count = float(sum(1 for i in exit_items if str(i.get("status", "")).lower() == "excess"))
 
     return {
-        "qr_scan_count": qr_scan_count,
-        "time_to_exit_seconds": time_to_exit_seconds,
-        "billed_item_count": billed_count,
-        "verified_item_count": verified_count,
-        "quantity_difference": qty_diff,
-        "mismatch_detected": mismatch_val,
-        "unbilled_item_count": unbilled_count,
-        "missing_item_count": missing_count,
-        "excess_item_count": excess_count,
+        "qr_scan_count": float(qr_scan_count),
+        "time_to_exit_seconds": _safe_float(time_to_exit_seconds, 0.0),
+        "billed_item_count": float(billed_count),
+        "verified_item_count": float(verified_count),
+        "quantity_difference": _safe_float(qty_diff, 0.0),
+        "mismatch_detected": float(mismatch_val),
+        "unbilled_item_count": float(unbilled_count),
+        "missing_item_count": float(missing_count),
+        "excess_item_count": float(excess_count),
     }
 
 
@@ -234,12 +258,12 @@ def calculate_customer_history_features(
         account_age_days = float(max(0.0, delta))
 
     previous_order_count = float(len(prior_orders))
-    previous_total_spent = float(sum(float(o.get("total") or 0.0) for o in prior_orders))
+    previous_total_spent = float(sum(_safe_float(o.get("total"), 0.0) for o in prior_orders))
 
     return {
-        "account_age_days": account_age_days,
-        "previous_order_count": previous_order_count,
-        "previous_total_spent": previous_total_spent,
+        "account_age_days": _safe_float(account_age_days, 0.0),
+        "previous_order_count": float(previous_order_count),
+        "previous_total_spent": _safe_float(previous_total_spent, 0.0),
     }
 
 
@@ -255,6 +279,7 @@ def extract_order_features(
 ) -> Dict[str, Any]:
     """
     Extracts a unified numeric feature vector for a given order context.
+    Guarantees every numerical feature is a finite, valid float.
     """
     order_id = order.get("id") or order.get("order_id")
     user_id = order.get("user_id")
@@ -266,14 +291,19 @@ def extract_order_features(
     history_feats = calculate_customer_history_features(order, profile, prior_orders or [])
 
     feature_record: Dict[str, Any] = {
-        "order_id": str(order_id),
-        "user_id": str(user_id) if user_id else None,
+        "order_id": str(order_id) if order_id is not None else None,
+        "user_id": str(user_id) if user_id is not None else None,
         **cart_feats,
         **payment_feats,
         **scanning_feats,
         **exit_feats,
         **history_feats,
     }
+
+    # Ensure all numerical values are strictly finite floats
+    for k, v in feature_record.items():
+        if k not in ("order_id", "user_id"):
+            feature_record[k] = _safe_float(v, 0.0)
 
     return feature_record
 

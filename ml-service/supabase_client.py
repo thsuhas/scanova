@@ -16,6 +16,7 @@ Provides safe data access to existing Scanova Supabase tables:
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import numpy as np
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
@@ -253,6 +254,32 @@ def fetch_order_by_id(order_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def sanitize_json_value(val: Any) -> Any:
+    """
+    Recursively sanitizes values for RFC 8259 JSON compliance.
+    Ensures no NaN, Infinity, -Infinity, or non-serializable objects exist.
+    Converts numpy scalar types to native Python types.
+    """
+    if val is None:
+        return None
+    if isinstance(val, (float, np.floating)):
+        f = float(val)
+        if np.isnan(f) or np.isinf(f):
+            return 0.0
+        return f
+    if isinstance(val, (int, np.integer)):
+        return int(val)
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        return {str(k): sanitize_json_value(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple, set)):
+        return [sanitize_json_value(v) for v in val]
+    return str(val)
+
+
 def save_fraud_detection(
     order_id: str,
     user_id: Optional[str],
@@ -263,16 +290,32 @@ def save_fraud_detection(
 ) -> Optional[Dict[str, Any]]:
     """
     Persists an ML anomaly risk evaluation to the 'fraud_detections' table.
+    Guarantees all payload fields and nested JSONB risk factors are strictly
+    finite, valid JSON compliant types.
     """
     try:
         client = get_supabase_client()
+
+        clean_risk_score = float(risk_score) if (risk_score is not None and not np.isnan(risk_score) and not np.isinf(risk_score)) else 0.15
+        clean_risk_score = float(np.clip(clean_risk_score, 0.0, 1.0))
+
+        clean_risk_level = str(risk_level or "low").lower()
+        if clean_risk_level not in ("low", "medium", "high"):
+            clean_risk_level = "low"
+
+        clean_action_taken = str(action_taken or "auto_cleared").lower()
+        if clean_action_taken not in ("auto_cleared", "flag_for_gate_check", "blocked"):
+            clean_action_taken = "auto_cleared" if clean_risk_level == "low" else "flag_for_gate_check"
+
+        clean_risk_factors = sanitize_json_value(risk_factors) if risk_factors else {}
+
         payload = {
-            "order_id": order_id,
-            "user_id": user_id if user_id else None,
-            "risk_score": float(risk_score),
-            "risk_level": str(risk_level).lower(),
-            "risk_factors": risk_factors or {},
-            "action_taken": str(action_taken).lower(),
+            "order_id": str(order_id),
+            "user_id": str(user_id) if user_id else None,
+            "risk_score": clean_risk_score,
+            "risk_level": clean_risk_level,
+            "risk_factors": clean_risk_factors,
+            "action_taken": clean_action_taken,
         }
         res = client.table("fraud_detections").insert(payload).execute()
         if res.data and len(res.data) > 0:

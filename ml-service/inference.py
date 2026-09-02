@@ -32,6 +32,19 @@ def load_model_artifact() -> Dict[str, Any]:
     return _cached_artifact
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely converts any value to a finite float, returning default if None, NaN, or Inf."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        if np.isnan(f) or np.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+
 def compute_heuristic_baseline_risk(features: Dict[str, Any]) -> Tuple[float, float]:
     """
     Deterministic baseline risk evaluator used when insufficient real transactions
@@ -39,18 +52,18 @@ def compute_heuristic_baseline_risk(features: Dict[str, Any]) -> Tuple[float, fl
     """
     risk = 0.15
 
-    total_value = float(features.get("total_order_value") or 0.0)
-    payment_discrepancy = float(features.get("payment_discrepancy") or 0.0)
-    is_payment_completed = float(features.get("is_payment_completed") or 1.0)
-    mismatch_detected = features.get("mismatch_detected")
-    failed_scan_ratio = float(features.get("failed_scan_ratio") or 0.0)
-    max_qty = float(features.get("max_item_quantity") or 1.0)
+    total_value = _safe_float(features.get("total_order_value"), 0.0)
+    payment_discrepancy = _safe_float(features.get("payment_discrepancy"), 0.0)
+    is_payment_completed = _safe_float(features.get("is_payment_completed"), 1.0)
+    mismatch_detected = _safe_float(features.get("mismatch_detected"), 0.0)
+    failed_scan_ratio = _safe_float(features.get("failed_scan_ratio"), 0.0)
+    max_qty = _safe_float(features.get("max_item_quantity"), 1.0)
 
     if is_payment_completed < 1.0:
         risk += 0.40
     if payment_discrepancy > 10.0:
         risk += 0.30
-    if mismatch_detected == 1.0:
+    if mismatch_detected >= 1.0:
         risk += 0.40
     if failed_scan_ratio > 0.40:
         risk += 0.20
@@ -69,9 +82,10 @@ def score_to_risk_level(risk_score: float) -> str:
     - [0.40, 0.70): medium
     - [0.70, 1.00]: high
     """
-    if risk_score < 0.40:
+    clean_score = _safe_float(risk_score, 0.15)
+    if clean_score < 0.40:
         return "low"
-    elif risk_score < 0.70:
+    elif clean_score < 0.70:
         return "medium"
     else:
         return "high"
@@ -98,27 +112,41 @@ def predict_fraud_risk(
         record_dict = dict(feature_record)
 
     if pipeline is not None:
-        row_values = [float(record_dict.get(col, np.nan)) for col in MODEL_FEATURES]
+        row_values = [_safe_float(record_dict.get(col), 0.0) for col in MODEL_FEATURES]
         X = pd.DataFrame([row_values], columns=MODEL_FEATURES)
 
-        imputed_X = pipeline.named_steps["imputer"].transform(X)
-        raw_score = float(pipeline.named_steps["model"].decision_function(imputed_X)[0])
+        try:
+            imputed_X = pipeline.named_steps["imputer"].transform(X)
+            imputed_X = np.nan_to_num(imputed_X, nan=0.0, posinf=0.0, neginf=0.0)
+            raw_score = float(pipeline.named_steps["model"].decision_function(imputed_X)[0])
 
-        risk_score = float(np.clip(0.5 - (raw_score / 0.5), 0.0, 1.0))
-        is_anomaly = bool(raw_score < 0.0)
-        engine_status = "trained_isolation_forest"
+            if np.isnan(raw_score) or np.isinf(raw_score):
+                raw_score, risk_score = compute_heuristic_baseline_risk(record_dict)
+                is_anomaly = bool(risk_score >= 0.70)
+                engine_status = "heuristic_baseline_fallback"
+            else:
+                risk_score = float(np.clip(0.5 - (raw_score / 0.5), 0.0, 1.0))
+                is_anomaly = bool(raw_score < 0.0)
+                engine_status = "trained_isolation_forest"
+        except Exception:
+            raw_score, risk_score = compute_heuristic_baseline_risk(record_dict)
+            is_anomaly = bool(risk_score >= 0.70)
+            engine_status = "heuristic_baseline_fallback"
     else:
         raw_score, risk_score = compute_heuristic_baseline_risk(record_dict)
         is_anomaly = bool(risk_score >= 0.70)
         engine_status = "heuristic_baseline_pending_real_data"
 
-    risk_level = score_to_risk_level(risk_score)
+    clean_raw_score = _safe_float(raw_score, 0.175)
+    clean_risk_score = _safe_float(risk_score, 0.15)
+    clean_risk_score = float(np.clip(clean_risk_score, 0.0, 1.0))
+    risk_level = score_to_risk_level(clean_risk_score)
 
     return {
-        "anomaly_score": round(raw_score, 4),
-        "risk_score": round(risk_score, 4),
-        "risk_level": risk_level,
-        "is_anomaly": is_anomaly,
+        "anomaly_score": round(clean_raw_score, 4),
+        "risk_score": round(clean_risk_score, 4),
+        "risk_level": str(risk_level),
+        "is_anomaly": bool(is_anomaly),
         "model_status": engine_status,
         "evaluated_features_count": len(MODEL_FEATURES),
     }
