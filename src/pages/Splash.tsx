@@ -16,7 +16,7 @@ export default function Splash() {
           navigatedRef.current = true;
           navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
         }
-      }, 1000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
   }, [navigate, isAuthenticated, loading]);
@@ -28,7 +28,7 @@ export default function Splash() {
         navigatedRef.current = true;
         navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
       }
-    }, 2000);
+    }, 3500);
     return () => clearTimeout(safetyTimer);
   }, [navigate, isAuthenticated]);
 
