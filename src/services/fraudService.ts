@@ -6,7 +6,7 @@
 
 import { supabase } from '../lib/supabase';
 
-const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'http://localhost:8000';
+const ML_SERVICE_URL = import.meta.env.VITE_ML_SERVICE_URL || 'https://scanova-production.up.railway.app';
 
 export interface FraudEvaluationResult {
   order_id: string;
@@ -109,14 +109,21 @@ export function isBarcodeTampered(
   result?: BarcodeTamperingResult | null
 ): boolean {
   if (!result) return false;
+  const level = (result.level || '').toLowerCase();
+  const detected = Boolean(result.detected);
+  const score = typeof result.score === 'number' ? result.score : 0;
+
   // High-confidence physical tampering criteria:
   // 1. Model explicitly classified as detected = true AND assigned level = 'high', OR
-  // 2. Continuous tampering score >= 0.85 (calibrated high-confidence threshold).
-  // Low-risk genuine barcodes (score < 0.35, level = 'low') and ambiguous/medium signals (< 0.85) are cleared.
-  if (result.detected === true && result.level === 'high') {
+  // 2. Continuous tampering score >= 0.85 (or detected with high risk score).
+  // Low-risk genuine barcodes (score < 0.35, level = 'low') are cleared.
+  if (detected && level === 'high') {
     return true;
   }
-  if (typeof result.score === 'number' && result.score >= 0.85) {
+  if (score >= 0.85) {
+    return true;
+  }
+  if (detected && score >= 0.50) {
     return true;
   }
   return false;

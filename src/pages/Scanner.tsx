@@ -424,6 +424,10 @@ export default function Scanner() {
   // Keep the ref updated with the latest callback reference
   useEffect(() => {
     handleBarcodeRef.current = handleBarcode;
+    (window as any).__scanova_handle_barcode = handleBarcode;
+    return () => {
+      delete (window as any).__scanova_handle_barcode;
+    };
   }, [handleBarcode]);
 
   // Auto-start scanner when component mounts
