@@ -25,66 +25,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = async (id: string, email: string) => {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('username')
         .eq('id', id)
         .maybeSingle();
       
-      if (data) {
-        setCurrentUser({ id, email, username: data.username });
-      } else {
-        // Fallback if profile trigger is delayed
-        setCurrentUser({ id, email, username: email.split('@')[0] });
+      if (data?.username) {
+        setCurrentUser(prev => prev ? { ...prev, username: data.username } : { id, email, username: data.username });
       }
-    } catch (err) {
-      setCurrentUser({ id, email, username: email.split('@')[0] });
-    } finally {
-      setLoading(false);
+    } catch {
+      // Background profile fetch failure is non-blocking
     }
   };
 
   useEffect(() => {
-    let active = true;
+    let isMounted = true;
 
-    // Direct initial session check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!active) return;
-      if (session?.user) {
-        fetchProfile(session.user.id, session.user.email || '');
+    const resolveAuth = (user: any | null) => {
+      if (!isMounted) return;
+      if (user) {
+        const fallbackUsername = user.user_metadata?.username || user.email?.split('@')[0] || 'shopper';
+        setCurrentUser({
+          id: user.id,
+          email: user.email || '',
+          username: fallbackUsername,
+        });
+        setLoading(false);
+        // Enrich profile in background
+        fetchProfile(user.id, user.email || '');
       } else {
         setCurrentUser(null);
         setLoading(false);
       }
-    }).catch(() => {
-      if (active) {
-        setCurrentUser(null);
-        setLoading(false);
-      }
-    });
+    };
 
-    try {
-      const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (!active) return;
-        if (session?.user) {
-          await fetchProfile(session.user.id, session.user.email || '');
-        } else {
-          setCurrentUser(null);
-          setLoading(false);
-        }
+    // Initial session retrieval
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        resolveAuth(session?.user ?? null);
+      })
+      .catch(() => {
+        resolveAuth(null);
       });
 
-      return () => {
-        active = false;
-        data?.subscription?.unsubscribe();
-      };
-    } catch (err) {
-      console.warn('[AuthContext] Supabase auth listener error, falling back:', err);
-      if (active) {
-        setCurrentUser(null);
+    // Fallback safety watchdog to guarantee loading is never stuck
+    const safetyWatchdog = setTimeout(() => {
+      if (isMounted) {
         setLoading(false);
       }
+    }, 2500);
+
+    // Auth state listener for sign in, sign out, token refresh
+    let subscription: { unsubscribe: () => void } | null = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        resolveAuth(session?.user ?? null);
+      });
+      subscription = data?.subscription ?? null;
+    } catch (err) {
+      console.warn('[AuthContext] onAuthStateChange setup error:', err);
+      resolveAuth(null);
     }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyWatchdog);
+      subscription?.unsubscribe();
+    };
   }, []);
 
 
@@ -186,7 +194,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('[AuthContext] logout error:', err);
+    } finally {
+      setCurrentUser(null);
+      setLoading(false);
+    }
   };
 
   const resetPassword = async (emailOrUsername: string) => {

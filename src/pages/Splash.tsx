@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ScanLine } from 'lucide-react';
@@ -7,15 +7,30 @@ import { useAuth } from '../contexts/AuthContext';
 export default function Splash() {
   const navigate = useNavigate();
   const { isAuthenticated, loading } = useAuth();
+  const navigatedRef = useRef(false);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && !navigatedRef.current) {
       const timer = setTimeout(() => {
-        navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
-      }, 1500);
+        if (!navigatedRef.current) {
+          navigatedRef.current = true;
+          navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
+        }
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [navigate, isAuthenticated, loading]);
+
+  // Safety fallback to guarantee the splash screen never hangs
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      if (!navigatedRef.current) {
+        navigatedRef.current = true;
+        navigate(isAuthenticated ? '/home' : '/auth', { replace: true });
+      }
+    }, 2000);
+    return () => clearTimeout(safetyTimer);
+  }, [navigate, isAuthenticated]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-[#0a0a1a]">
