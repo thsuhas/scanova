@@ -47,6 +47,7 @@ interface PaymentSuccessData {
   transactionId: string;
   receiptNumber: string;
   paymentMethod: string;
+  amountPaid: number;
 }
 
 export default function CartDrawer({ onClose }: Props) {
@@ -276,6 +277,7 @@ export default function CartDrawer({ onClose }: Props) {
       transactionId: txnId,
       receiptNumber: rcptNum,
       paymentMethod: method,
+      amountPaid: total,
     });
     setShowPayment(false);
     setShowSuccess(true);
@@ -348,7 +350,7 @@ export default function CartDrawer({ onClose }: Props) {
           <p className="text-white/40 text-xs mb-1">Order ID</p>
           <p className="text-white font-mono font-semibold mb-3">{successData.orderId}</p>
           <p className="text-white/40 text-xs mb-1">Amount Paid</p>
-          <p className="text-gradient font-bold text-xl">{formatPrice(total)}</p>
+          <p className="text-gradient font-bold text-xl">{formatPrice(successData.amountPaid ?? total)}</p>
         </motion.div>
 
         {/* VIEW BILL Button - Large and prominent */}
