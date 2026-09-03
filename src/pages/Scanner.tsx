@@ -355,49 +355,95 @@ export default function Scanner() {
       // Single efficient indexed query
       const { data, error } = await supabase
         .from('products')
-        .select('id, name')
+        .select('id, name, brand')
         .eq('id', normalized)
         .maybeSingle();
 
-
       if (error) throw error;
 
-      if (data) {
-        console.log('[Scanner] Product found:', data.name);
+      const foundProduct = data || products.find(p => p.id === normalized);
+
+      if (foundProduct) {
+        // Validate that the scanned barcode belongs to the current brand/store context
+        if (brandId) {
+          const productBrandLower = (foundProduct.brand || '').trim().toLowerCase();
+          const currentBrandNameLower = (brand?.name || '').trim().toLowerCase();
+          const currentBrandIdLower = (brandId || '').trim().toLowerCase();
+
+          const isBrandMatch = 
+            productBrandLower === currentBrandNameLower || 
+            productBrandLower === currentBrandIdLower;
+
+          if (!isBrandMatch) {
+            console.warn(`[Scanner] Invalid barcode for brand: scanned '${foundProduct.brand}' in '${brand?.name || brandId}' store context.`);
+            setStatus('error');
+            setStatusMessage('⚠️ Invalid Barcode');
+            setErrorMessage('⚠️ Invalid Barcode\nThis barcode is not registered for this brand.');
+            
+            // Allow scanning again after 3 seconds without navigating away
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                setErrorMessage('');
+                scannedRef.current = false;
+                setStatus('scanning');
+                setStatusMessage('Scanning Barcode...');
+              }
+            }, 3000);
+            return;
+          }
+        }
+
+        console.log('[Scanner] Product found:', foundProduct.name);
         setStatus('detected');
         setStatusMessage('Product Found!');
         stopScanner();
-        navigate(`/product/${data.id}`);
+        navigate(`/product/${foundProduct.id}`);
       } else {
-        // Fallback search locally
-        const localProduct = products.find(p => p.id === normalized);
-        if (localProduct) {
-          console.log('[Scanner] Product found locally:', localProduct.name);
-          setStatus('detected');
-          setStatusMessage('Product Found!');
-          stopScanner();
-          navigate(`/product/${localProduct.id}`);
-        } else {
-          console.log('[Scanner] Product not found:', normalized);
-          setStatus('error');
-          setStatusMessage('Product Not Found');
-          setErrorMessage('Product not found');
-          // Allow scanning again after 2 seconds without restarting camera hardware
-          setTimeout(() => {
-            if (isMountedRef.current) {
-              setErrorMessage('');
-              scannedRef.current = false;
-              setStatus('scanning');
-              setStatusMessage('Scanning Barcode...');
-            }
-          }, 2000);
-        }
+        console.log('[Scanner] Product not found:', normalized);
+        setStatus('error');
+        setStatusMessage('Product Not Found');
+        setErrorMessage('Product not found');
+        // Allow scanning again after 2 seconds without restarting camera hardware
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            setErrorMessage('');
+            scannedRef.current = false;
+            setStatus('scanning');
+            setStatusMessage('Scanning Barcode...');
+          }
+        }, 2000);
       }
     } catch (err) {
       console.error('[Scanner] Database lookup error:', err);
       // Fallback search locally
       const localProduct = products.find(p => p.id === normalized);
       if (localProduct) {
+        if (brandId) {
+          const productBrandLower = (localProduct.brand || '').trim().toLowerCase();
+          const currentBrandNameLower = (brand?.name || '').trim().toLowerCase();
+          const currentBrandIdLower = (brandId || '').trim().toLowerCase();
+
+          const isBrandMatch = 
+            productBrandLower === currentBrandNameLower || 
+            productBrandLower === currentBrandIdLower;
+
+          if (!isBrandMatch) {
+            console.warn(`[Scanner] Invalid barcode for brand (fallback): scanned '${localProduct.brand}' in '${brand?.name || brandId}' store context.`);
+            setStatus('error');
+            setStatusMessage('⚠️ Invalid Barcode');
+            setErrorMessage('⚠️ Invalid Barcode\nThis barcode is not registered for this brand.');
+            setTimeout(() => {
+              if (isMountedRef.current) {
+                setErrorMessage('');
+                scannedRef.current = false;
+                setStatus('scanning');
+                setStatusMessage('Scanning Barcode...');
+              }
+            }, 3000);
+            return;
+          }
+        }
+
         setStatus('detected');
         setStatusMessage('Product Found!');
         stopScanner();
@@ -417,7 +463,7 @@ export default function Scanner() {
         }, 2000);
       }
     }
-  }, [currentUser, navigate, stopScanner]);
+  }, [brand?.name, brandId, currentUser, navigate, stopScanner]);
 
   // Keep the ref updated with the latest callback reference
   useEffect(() => {
@@ -674,7 +720,7 @@ export default function Scanner() {
               animate={{ opacity: 1, y: 0 }}
               className="p-3 rounded-xl bg-red-500/5 border border-red-500/10"
             >
-              <p className="text-red-400 text-xs text-center font-medium">{errorMessage}</p>
+              <p className="text-red-400 text-xs text-center font-medium whitespace-pre-line">{errorMessage}</p>
             </motion.div>
           )}
         </motion.div>
