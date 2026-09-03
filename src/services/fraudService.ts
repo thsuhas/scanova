@@ -112,18 +112,19 @@ export function isBarcodeTampered(
   const level = (result.level || '').toLowerCase();
   const detected = Boolean(result.detected);
   const score = typeof result.score === 'number' ? result.score : 0;
+  const tamperType = (result.tampering_type || '').toLowerCase();
 
-  // High-confidence physical tampering criteria:
-  // 1. Model explicitly classified as detected = true AND assigned level = 'high', OR
-  // 2. Continuous tampering score >= 0.85 (or detected with high risk score).
-  // Low-risk genuine barcodes (score < 0.35, level = 'low') are cleared.
-  if (detected && level === 'high') {
+  // Tampering detection criteria:
+  // Genuine barcodes have tamperType == 'none' and score < 0.50.
+  // Physical structural tampering exhibits detected anomaly types (cuts, obstructions, line interruptions)
+  // or high continuous tampering confidence (score >= 0.55).
+  if (tamperType !== 'none' && tamperType !== '' && score >= 0.30) {
     return true;
   }
-  if (score >= 0.85) {
+  if (score >= 0.55) {
     return true;
   }
-  if (detected && score >= 0.50) {
+  if (detected && level === 'high' && tamperType !== 'none') {
     return true;
   }
   return false;

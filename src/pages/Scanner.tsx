@@ -182,36 +182,34 @@ export default function Scanner() {
               let cropH = vHeight;
 
               if (points.length >= 2) {
-                const xs = points.map((p: any) => typeof p.getX === 'function' ? p.getX() : (p.x || 0));
-                const ys = points.map((p: any) => typeof p.getY === 'function' ? p.getY() : (p.y || 0));
-                
-                const minX = Math.min(...xs);
-                const maxX = Math.max(...xs);
-                const minY = Math.min(...ys);
-                const maxY = Math.max(...ys);
-                
-                const barcodeWidth = Math.max(maxX - minX, 60);
-                
-                const centerX = (minX + maxX) / 2;
-                const centerY = (minY + maxY) / 2;
-                
-                // 1D retail barcodes (UPC/EAN) have a standard height-to-width aspect ratio of ~0.65-0.70
-                // Expand horizontal margins for quiet zones and vertical height proportionally to barcode width
-                const spanX = Math.max(barcodeWidth * 1.30, 160);
-                const spanY = Math.max(barcodeWidth * 0.70, 100);
-                
-                cropX = Math.max(0, Math.min(vWidth - spanX, centerX - spanX / 2));
-                cropY = Math.max(0, Math.min(vHeight - spanY, centerY - spanY / 2));
-                cropW = Math.max(50, Math.min(vWidth - cropX, spanX));
-                cropH = Math.max(50, Math.min(vHeight - cropY, spanY));
+                const p0: any = points[0];
+                const p1: any = points[1];
+                const p0x = typeof p0.getX === 'function' ? p0.getX() : (p0?.x ?? 0);
+                const p0y = typeof p0.getY === 'function' ? p0.getY() : (p0?.y ?? 0);
+                const p1x = typeof p1.getX === 'function' ? p1.getX() : (p1?.x ?? 0);
+                const p1y = typeof p1.getY === 'function' ? p1.getY() : (p1?.y ?? 0);
+
+                const barcodeWidth = Math.max(Math.hypot(p1x - p0x, p1y - p0y), 60);
+                const centerX = (p0x + p1x) / 2;
+                const centerY = (p0y + p1y) / 2;
+
+                // Standard barcode dataset aspect ratio is 254 / 164 (~1.55)
+                // Crop exact barcode bounds to match training image structure without background border dilution
+                const targetW = barcodeWidth;
+                const targetH = barcodeWidth * (164.0 / 254.0);
+
+                cropX = Math.max(0, Math.min(vWidth - targetW, centerX - targetW / 2));
+                cropY = Math.max(0, Math.min(vHeight - targetH, centerY - targetH / 2));
+                cropW = Math.max(40, Math.min(vWidth - cropX, targetW));
+                cropH = Math.max(30, Math.min(vHeight - cropY, targetH));
               } else {
-                // Fallback: Crop center 55% width x 40% height viewfinder region
-                const spanX = vWidth * 0.55;
-                const spanY = vHeight * 0.40;
-                cropX = Math.max(0, (vWidth - spanX) / 2);
-                cropY = Math.max(0, (vHeight - spanY) / 2);
-                cropW = Math.min(vWidth - cropX, spanX);
-                cropH = Math.min(vHeight - cropY, spanY);
+                // Fallback: Crop center viewfinder region matching standard aspect ratio
+                const targetW = vWidth * 0.50;
+                const targetH = targetW * (164.0 / 254.0);
+                cropX = Math.max(0, (vWidth - targetW) / 2);
+                cropY = Math.max(0, (vHeight - targetH) / 2);
+                cropW = Math.min(vWidth - cropX, targetW);
+                cropH = Math.min(vHeight - cropY, targetH);
               }
 
               const canvas = document.createElement('canvas');
